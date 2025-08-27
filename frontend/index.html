@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión COCODI</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f4f7f9; }
+        .main-nav { background-color: #343a40; padding: 1em; text-align: center; }
+        .main-nav a { color: white; text-decoration: none; padding: 1em; font-weight: bold; }
+        .main-nav a.active { background-color: #007bff; }
+        .container { background-color: #fff; padding: 2em; margin: 2em; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
+        .hidden { display: none; }
+        h1, h2, h3 { color: #333; }
+        button { padding: 10px 15px; font-size: 16px; cursor: pointer; border-radius: 5px; border: none; color: white; }
+        .btn-primary { background-color: #007bff; }
+        .btn-secondary { background-color: #6c757d; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; }
+        #informes-tbody tr { cursor: pointer; }
+        #informes-tbody tr:hover { background-color: #f1f1f1; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+        .modal-content { background-color: #fefefe; padding: 20px; width: 80%; max-width: 600px; border-radius: 8px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 20px; }
+        .modal-header h2 { margin: 0; }
+        .modal-form div { margin-bottom: 15px; }
+        .modal-form label { display: block; margin-bottom: 5px; }
+        .modal-form input, .modal-form textarea, .modal-form select { width: 100%; padding: 8px; box-sizing: border-box; }
+        .close-btn { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #dee2e6; padding-bottom: 10px; margin-bottom: 20px; }
+        .filtros { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; padding: 1.5em; background-color: #f8f9fa; border-radius: 5px; align-items: flex-end; }
+        .filtros > div { flex: 1; min-width: 200px; }
+        .filtros label { margin-bottom: 5px; font-weight: bold; color: #555; display: block; }
+        .filtros select, .filtros input { padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; width: 100%; box-sizing: border-box; }
+        .calendario-header { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5em; border-bottom: 1px solid #ccc; padding-bottom: 0.5em;}
+        #btn-agendar-extraordinaria { background-color: #6c757d; }
+        #btn-agendar-extraordinaria:disabled { background-color: #ccc; cursor: not-allowed; }
+        #calendario-container { margin-top: 20px; min-height: 100px;}
+        .sesion-card { border: 1px solid #ddd; border-radius: 5px; padding: 1em; margin-bottom: 1em; background-color: #fff; display: flex; justify-content: space-between; align-items: center; }
+        .sesion-card-info p { margin: 0.5em 0; }
+        .sesion-card .estatus { font-weight: bold; padding: 0.2em 0.5em; border-radius: 4px; color: white; }
+        .estatus-Programada { background-color: #007bff; }
+        .estatus-Realizada { background-color: #28a745; }
+        .btn-registrar { padding: 10px 15px; background-color: #17a2b8; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <nav class="main-nav">
+        <a href="#" data-section="section-sesiones" class="nav-link active">Sesiones</a>
+        <a href="#" data-section="section-reportes" class="nav-link">Reportes y Acuerdos</a>
+        <a href="#" data-section="section-dashboard" class="nav-link">Dashboard</a>
+        <a href="#" data-section="section-reporteria" class="nav-link">Reportería</a>
+    </nav>
+
+    <section id="section-sesiones" class="app-section">
+        <div class="container">
+            <div class="filtros">
+                <div><label for="filtro-año">Año:</label><input type="number" id="filtro-año" value="2025"></div>
+                <div><label for="filtro-responsable">Responsable:</label><select id="filtro-responsable" required><option value="">Seleccione...</option></select></div>
+                <div><label for="filtro-institucion">Institución:</label><select id="filtro-institucion" required disabled><option value="">Seleccione...</option></select></div>
+                <div><label for="filtro-organo">Órgano Colegiado:</label><select id="filtro-organo" required disabled><option value="">Seleccione...</option></select></div>
+            </div>
+            <div class="calendario-header">
+                <h2>Calendario de Sesiones</h2>
+                <button id="btn-agendar-extraordinaria" disabled>Agendar Extraordinaria</button>
+            </div>
+            <div id="calendario-container"><p>Por favor, complete los filtros.</p></div>
+        </div>
+    </section>
+    
+    <section id="section-reportes" class="app-section hidden">
+        <div id="reportes-main-view">
+            <div class="container">
+                <div class="header"><h1>Gestión de Informes</h1><button id="btn-nuevo-informe" class="btn-primary">Crear Nuevo Informe</button></div>
+                <table id="informes-table">
+                    <thead><tr><th>Institución</th><th>Tipo de Informe</th><th>Periodo</th><th>Fecha</th><th>Responsable</th></tr></thead>
+                    <tbody id="informes-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div id="reportes-detail-view" class="hidden">
+            <div class="container">
+                <button id="btn-volver-a-informes" class="btn-secondary">&larr; Volver a la lista</button>
+                <div id="informe-detalle-header"></div>
+                <div class="header"><h3>Recomendaciones</h3><button id="btn-nueva-recomendacion" class="btn-primary">Añadir Recomendación</button></div>
+                <table id="recomendaciones-table">
+                    <thead><tr><th>Descripción</th><th>Área Responsable</th><th>Fecha Compromiso</th><th>Estatus</th><th>Prioridad</th></tr></thead>
+                    <tbody id="recomendaciones-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section id="section-dashboard" class="app-section hidden"><div class="container"><h1>Dashboard</h1><p>Próximamente...</p></div></section>
+    <section id="section-reporteria" class="app-section hidden"><div class="container"><h1>Reportería</h1><p>Próximamente...</p></div></section>
+
+    <!-- Modales -->
+    <div id="ejecucion-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Registrar Ejecución</h2>
+                <span class="close-btn" id="close-modal-btn">&times;</span>
+            </div>
+            <form id="ejecucion-form" class="modal-form">
+                 <input type="hidden" id="id_calendario_hidden" name="id_calendario">
+                <div><label>Número de Oficio:</label><input type="text" name="numero_sesion_oficial" required></div>
+                <div><label>Fecha Real de Ejecución:</label><input type="date" name="fecha_real" required></div>
+                <div><label>Resumen Ejecutivo:</label><textarea name="resumen_ejecutivo" rows="4"></textarea></div>
+                <div><label>URL del Acta Firmada (Google Drive):</label><input type="text" name="url_acta_firmada"></div>
+                <button type="submit" class="btn-primary">Guardar Ejecución</button>
+            </form>
+        </div>
+    </div>
+    <div id="informe-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Nuevo Informe de Seguimiento</h2>
+                <span class="close-btn" id="informe-modal-close">&times;</span>
+            </div>
+            <form id="informe-form" class="modal-form">
+                <div><label>Periodo:</label><select id="periodo-select" name="periodo" required></select></div>
+                <div><label>Responsable:</label><select id="responsable-select" name="id_responsable" required></select></div>
+                <div><label>Institución:</label><select id="institucion-select" name="id_institucion" required disabled></select></div>
+                <div><label>Tipo de Informe:</label><select name="tipo_informe" required><option value="">Seleccione...</option><option>Informe de Autoevaluación</option><option>Informe de Estados Financieros</option><option>RAAD</option></select></div>
+                <div><label>Fecha de Emisión:</label><input type="date" name="fecha_informe" required></div>
+                <button type="submit" class="btn-primary">Guardar Informe</button>
+            </form>
+        </div>
+    </div>
+    <div id="recomendacion-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Nueva Recomendación</h2>
+                <span class="close-btn" id="recomendacion-modal-close">&times;</span>
+            </div>
+            <form id="recomendacion-form" class="modal-form">
+                <input type="hidden" id="id_informe_hidden" name="id_informe">
+                <div><label>Descripción:</label><textarea name="descripcion" required></textarea></div>
+                <div><label>Área Responsable:</label><input type="text" name="area_responsable_atencion" required></div>
+                <div><label>Fecha Compromiso:</label><input type="date" name="fecha_compromiso"></div>
+                <div><label>Estatus:</label><select name="estatus"><option>Pendiente</option><option>En Proceso</option><option>Completada</option><option>Cerrada</option><option>Cancelada</option></select></div>
+                <div><label>Prioridad:</label><select name="prioridad"><option>Media</option><option>Alta</option><option>Baja</option></select></div>
+                <div><label>Tipo:</label><select name="tipo_recomendacion"><option>Correctiva</option><option>Preventiva</option><option>De Mejora Continua</option></select></div>
+                <button type="submit" class="btn-primary">Guardar</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

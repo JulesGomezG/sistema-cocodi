@@ -1,0 +1,44 @@
+
+
+# docker-compose.yml (versión corregida)
+
+version: '3.8'
+
+services:
+  # Servicio de la Base de Datos (con healthcheck)
+  db:
+    image: postgres:15-alpine
+    container_name: cocodi_db
+    environment:
+      - POSTGRES_USER=cocodi_user
+      - POSTGRES_PASSWORD=supersecretpassword
+      - POSTGRES_DB=cocodi_db
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    # NUEVO: Healthcheck para asegurar que la BD esté lista
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cocodi_user -d cocodi_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Servicio del Backend (con espera explícita)
+  backend:
+    container_name: cocodi_backend
+    build: .
+    ports:
+      - "5001:5000"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://cocodi_user:supersecretpassword@db:5432/cocodi_db
+    # MODIFICADO: depends_on ahora espera a que el servicio esté saludable
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
