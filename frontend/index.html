@@ -15,11 +15,15 @@
         button { padding: 10px 15px; font-size: 16px; cursor: pointer; border-radius: 5px; border: none; color: white; }
         .btn-primary { background-color: #007bff; }
         .btn-secondary { background-color: #6c757d; }
+        .btn-warning { background-color: #ffc107; }
+        .btn-danger { background-color: #dc3545; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
         th { background-color: #f8f9fa; }
-        #informes-tbody tr { cursor: pointer; }
-        #informes-tbody tr:hover { background-color: #f1f1f1; }
+        #informes-tbody tr:not(.no-hover) { cursor: pointer; }
+        #informes-tbody tr:not(.no-hover):hover { background-color: #f1f1f1; }
+        .actions-cell { display: flex; gap: 5px; }
+        .actions-cell button { padding: 5px 10px; font-size: 14px; }
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
         .modal-content { background-color: #fefefe; padding: 20px; width: 80%; max-width: 600px; border-radius: 8px; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 20px; }
@@ -48,7 +52,7 @@
 <body>
     <nav class="main-nav">
         <a href="#" data-section="section-sesiones" class="nav-link active">Sesiones</a>
-        <a href="#" data-section="section-reportes" class="nav-link">Reportes y Acuerdos</a>
+        <a href="#" data-section="section-reportes" class="nav-link">Reportes y Recomendaciones</a>
         <a href="#" data-section="section-dashboard" class="nav-link">Dashboard</a>
         <a href="#" data-section="section-reporteria" class="nav-link">Reportería</a>
     </nav>
@@ -73,8 +77,12 @@
         <div id="reportes-main-view">
             <div class="container">
                 <div class="header"><h1>Gestión de Informes</h1><button id="btn-nuevo-informe" class="btn-primary">Crear Nuevo Informe</button></div>
+                <div class="filtros">
+                    <div><label for="filtro-informe-periodo">Periodo:</label><select id="filtro-informe-periodo"><option value="">Todos</option></select></div>
+                    <div><label for="filtro-informe-responsable">Responsable:</label><select id="filtro-informe-responsable"><option value="">Todos</option></select></div>
+                </div>
                 <table id="informes-table">
-                    <thead><tr><th>Institución</th><th>Tipo de Informe</th><th>Periodo</th><th>Fecha</th><th>Responsable</th></tr></thead>
+                    <thead><tr><th>Institución</th><th>Tipo de Informe</th><th>Periodo</th><th>Fecha</th><th>Responsable</th><th>Acciones</th></tr></thead>
                     <tbody id="informes-tbody"></tbody>
                 </table>
             </div>
@@ -85,7 +93,7 @@
                 <div id="informe-detalle-header"></div>
                 <div class="header"><h3>Recomendaciones</h3><button id="btn-nueva-recomendacion" class="btn-primary">Añadir Recomendación</button></div>
                 <table id="recomendaciones-table">
-                    <thead><tr><th>Descripción</th><th>Área Responsable</th><th>Fecha Compromiso</th><th>Estatus</th><th>Prioridad</th></tr></thead>
+                    <thead><tr><th>Descripción</th><th>Área Responsable</th><th>Fecha Compromiso</th><th>Estatus</th><th>Prioridad</th><th>Acciones</th></tr></thead>
                     <tbody id="recomendaciones-tbody"></tbody>
                 </table>
             </div>
@@ -98,10 +106,7 @@
     <!-- Modales -->
     <div id="ejecucion-modal" class="modal">
         <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modal-title">Registrar Ejecución</h2>
-                <span class="close-btn" id="close-modal-btn">&times;</span>
-            </div>
+            <div class="modal-header"><h2 id="modal-title">Registrar Ejecución</h2><span class="close-btn" id="close-modal-btn">&times;</span></div>
             <form id="ejecucion-form" class="modal-form">
                  <input type="hidden" id="id_calendario_hidden" name="id_calendario">
                 <div><label>Número de Oficio:</label><input type="text" name="numero_sesion_oficial" required></div>
@@ -114,11 +119,9 @@
     </div>
     <div id="informe-modal" class="modal">
         <div class="modal-content">
-            <div class="modal-header">
-                <h2>Nuevo Informe de Seguimiento</h2>
-                <span class="close-btn" id="informe-modal-close">&times;</span>
-            </div>
+            <div class="modal-header"><h2 id="informe-modal-title">Nuevo Informe de Seguimiento</h2><span class="close-btn" id="informe-modal-close">&times;</span></div>
             <form id="informe-form" class="modal-form">
+                <input type="hidden" id="id_informe_hidden_form" name="id_informe">
                 <div><label>Periodo:</label><select id="periodo-select" name="periodo" required></select></div>
                 <div><label>Responsable:</label><select id="responsable-select" name="id_responsable" required></select></div>
                 <div><label>Institución:</label><select id="institucion-select" name="id_institucion" required disabled></select></div>
@@ -130,12 +133,9 @@
     </div>
     <div id="recomendacion-modal" class="modal">
         <div class="modal-content">
-            <div class="modal-header">
-                <h2>Nueva Recomendación</h2>
-                <span class="close-btn" id="recomendacion-modal-close">&times;</span>
-            </div>
+            <div class="modal-header"><h2 id="recomendacion-modal-title">Nueva Recomendación</h2><span class="close-btn" id="recomendacion-modal-close">&times;</span></div>
             <form id="recomendacion-form" class="modal-form">
-                <input type="hidden" id="id_informe_hidden" name="id_informe">
+                <input type="hidden" id="id_recomendacion_hidden" name="id_recomendacion">
                 <div><label>Descripción:</label><textarea name="descripcion" required></textarea></div>
                 <div><label>Área Responsable:</label><input type="text" name="area_responsable_atencion" required></div>
                 <div><label>Fecha Compromiso:</label><input type="date" name="fecha_compromiso"></div>

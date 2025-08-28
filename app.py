@@ -61,14 +61,12 @@ def obtener_o_crear_calendario():
     if not all([año, institucion_id, organo_id]): return jsonify({"error": "Faltan parámetros."}), 400
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    # Primero, crear las ordinarias si no existen
     query_check_ordinarias = "SELECT 1 FROM Calendario_Sesiones WHERE año = %s AND id_institucion = %s AND id_organo_colegiado = %s AND tipo_sesion = 'Ordinaria';"
     cur.execute(query_check_ordinarias, (año, institucion_id, organo_id))
     if cur.fetchone() is None:
         query_insert = "INSERT INTO Calendario_Sesiones (año, id_institucion, id_organo_colegiado, tipo_sesion, numero_ordinal) VALUES (%s, %s, %s, 'Ordinaria', %s);"
         for i in range(1, 5): cur.execute(query_insert, (año, institucion_id, organo_id, i))
         conn.commit()
-    # Después, devolver TODAS las sesiones para esa selección
     query_select_all = "SELECT * FROM Calendario_Sesiones WHERE año = %s AND id_institucion = %s AND id_organo_colegiado = %s ORDER BY tipo_sesion DESC, numero_ordinal ASC;"
     cur.execute(query_select_all, (año, institucion_id, organo_id))
     calendario = [dict(row) for row in cur.fetchall()]
@@ -111,8 +109,18 @@ def manejar_informes():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     if request.method == 'GET':
-        sql = "SELECT inf.*, ins.nombre_institucion, ins.siglas, res.nombre_responsable FROM Informes_de_Seguimiento AS inf JOIN Instituciones AS ins ON inf.id_institucion = ins.id_institucion JOIN Responsables AS res ON inf.id_responsable = res.id_responsable WHERE inf.activo = TRUE ORDER BY inf.fecha_informe DESC;"
-        cur.execute(sql)
+        periodo = request.args.get('periodo')
+        responsable_id = request.args.get('responsable_id', type=int)
+        base_sql = "SELECT inf.*, ins.nombre_institucion, ins.siglas, res.nombre_responsable FROM Informes_de_Seguimiento AS inf JOIN Instituciones AS ins ON inf.id_institucion = ins.id_institucion JOIN Responsables AS res ON inf.id_responsable = res.id_responsable WHERE inf.activo = TRUE"
+        params = []
+        if periodo:
+            base_sql += " AND inf.periodo = %s"
+            params.append(periodo)
+        if responsable_id:
+            base_sql += " AND inf.id_responsable = %s"
+            params.append(responsable_id)
+        base_sql += " ORDER BY inf.fecha_informe DESC;"
+        cur.execute(base_sql, tuple(params))
         informes = [dict(row) for row in cur.fetchall()]
         cur.close()
         conn.close()
@@ -127,16 +135,31 @@ def manejar_informes():
         conn.close()
         return jsonify({"message": "Informe creado.", "id_informe": new_id}), 201
 
-@app.route('/api/informes/<int:informe_id>', methods=['GET'])
-def obtener_informe_detalle(informe_id):
+@app.route('/api/informes/<int:informe_id>', methods=['GET', 'PUT', 'DELETE'])
+def manejar_informe_especifico(informe_id):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    sql = "SELECT inf.*, ins.nombre_institucion, res.nombre_responsable FROM Informes_de_Seguimiento AS inf JOIN Instituciones AS ins ON inf.id_institucion = ins.id_institucion JOIN Responsables AS res ON inf.id_responsable = res.id_responsable WHERE inf.id_informe = %s;"
-    cur.execute(sql, (informe_id,))
-    informe = cur.fetchone()
-    cur.close()
-    conn.close()
-    return jsonify(dict(informe)) if informe else (jsonify({"error": "Informe no encontrado"}), 404)
+    if request.method == 'GET':
+        sql = "SELECT inf.*, ins.nombre_institucion, res.nombre_responsable FROM Informes_de_Seguimiento AS inf JOIN Instituciones AS ins ON inf.id_institucion = ins.id_institucion JOIN Responsables AS res ON inf.id_responsable = res.id_responsable WHERE inf.id_informe = %s;"
+        cur.execute(sql, (informe_id,))
+        informe = cur.fetchone()
+        cur.close()
+        conn.close()
+        return jsonify(dict(informe)) if informe else (jsonify({"error": "Informe no encontrado"}), 404)
+    if request.method == 'PUT':
+        data = request.get_json()
+        sql = "UPDATE Informes_de_Seguimiento SET tipo_informe = %s, periodo = %s, fecha_informe = %s WHERE id_informe = %s;"
+        cur.execute(sql, (data['tipo_informe'], data['periodo'], data['fecha_informe'], informe_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"message": "Informe actualizado."})
+    if request.method == 'DELETE':
+        cur.execute("UPDATE Informes_de_Seguimiento SET activo = FALSE WHERE id_informe = %s;", (informe_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"message": "Informe eliminado."})
 
 @app.route('/api/recomendaciones', methods=['GET', 'POST'])
 def manejar_recomendaciones():
@@ -159,6 +182,25 @@ def manejar_recomendaciones():
         cur.close()
         conn.close()
         return jsonify({"message": "Recomendación creada.", "id_recomendacion": new_id}), 201
+
+@app.route('/api/recomendaciones/<int:rec_id>', methods=['PUT', 'DELETE'])
+def manejar_recomendacion_especifica(rec_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    if request.method == 'PUT':
+        data = request.get_json()
+        sql = "UPDATE Recomendaciones SET descripcion = %s, area_responsable_atencion = %s, fecha_compromiso = %s, estatus = %s, prioridad = %s, tipo_recomendacion = %s WHERE id_recomendacion = %s;"
+        cur.execute(sql, (data['descripcion'], data['area_responsable_atencion'], data.get('fecha_compromiso'), data['estatus'], data['prioridad'], data['tipo_recomendacion'], rec_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"message": "Recomendación actualizada."})
+    if request.method == 'DELETE':
+        cur.execute("UPDATE Recomendaciones SET activo = FALSE WHERE id_recomendacion = %s;", (rec_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"message": "Recomendación eliminada."})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
