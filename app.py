@@ -23,34 +23,46 @@ def get_db_connection():
 # =============================================================
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"error": "No se encontró el archivo"}), 400
+    # AJUSTE: Cambiado a getlist para manejar múltiples archivos
+    files = request.files.getlist('files')
+    if not files or files[0].filename == '':
+        return jsonify({"error": "No se encontraron archivos"}), 400
     
-    file = request.files['file']
     parent_type = request.form.get('parent_type')
     parent_id = request.form.get('parent_id', type=int)
 
-    if file.filename == '' or not parent_type or not parent_id:
+    if not parent_type or not parent_id:
         return jsonify({"error": "Faltan datos para la carga"}), 400
 
-    if file:
-        filename = secure_filename(file.filename)
-        target_folder = os.path.join(app.config['UPLOAD_FOLDER'], parent_type)
-        os.makedirs(target_folder, exist_ok=True)
-        
-        file_path = os.path.join(target_folder, filename)
-        file.save(file_path)
-        
-        conn = get_db_connection()
-        cur = conn.cursor()
-        relative_path = os.path.join(parent_type, filename).replace("\\", "/")
-        sql = "INSERT INTO Evidencias (parent_id, parent_type, nombre_archivo, url_almacenamiento) VALUES (%s, %s, %s, %s) RETURNING id_evidencia;"
-        cur.execute(sql, (parent_id, parent_type, filename, relative_path))
-        new_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"message": "Archivo subido", "id_evidencia": new_id}), 201
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # AJUSTE: Lógica de reemplazo (borrado lógico)
+    # Antes de subir nuevos archivos, marcamos los existentes como inactivos.
+    sql_soft_delete = "UPDATE Evidencias SET activo = FALSE WHERE parent_type = %s AND parent_id = %s;"
+    cur.execute(sql_soft_delete, (parent_type, parent_id))
+
+    new_ids = []
+    for file in files:
+        if file:
+            filename = secure_filename(file.filename)
+            target_folder = os.path.join(app.config['UPLOAD_FOLDER'], parent_type)
+            os.makedirs(target_folder, exist_ok=True)
+            
+            file_path = os.path.join(target_folder, filename)
+            file.save(file_path)
+            
+            relative_path = os.path.join(parent_type, filename).replace("\\", "/")
+            sql = "INSERT INTO Evidencias (parent_id, parent_type, nombre_archivo, url_almacenamiento) VALUES (%s, %s, %s, %s) RETURNING id_evidencia;"
+            cur.execute(sql, (parent_id, parent_type, filename, relative_path))
+            new_id = cur.fetchone()[0]
+            new_ids.append(new_id)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"message": "Archivos subidos", "id_evidencias": new_ids}), 201
+
 
 @app.route('/uploads/<path:filename>')
 def serve_uploaded_file(filename):
@@ -326,7 +338,6 @@ def manejar_recomendaciones():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     if request.method == 'GET':
-        # CORRECCIÓN: Volver a leer informe_id
         informe_id = request.args.get('informe_id', type=int)
         año = request.args.get('año')
         responsable_id = request.args.get('responsable_id', type=int)
@@ -350,13 +361,10 @@ def manejar_recomendaciones():
         """
         params = []
         
-        # CORRECCIÓN: Lógica de filtrado condicional
         if informe_id:
-            # Si se busca por informe, es el único filtro que importa
             sql += " AND r.id_informe = %s"
             params.append(informe_id)
         else:
-            # Si no, se aplican los filtros de la sección principal
             if año:
                 sql += " AND EXTRACT(YEAR FROM r.fecha_emision) = %s"
                 params.append(año)

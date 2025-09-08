@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initAllModals();
     initConfirmModal();
     initAllFormValidations();
+    initFileInputManagers(); 
     initSesionesModule();
     initReportesModule();
     initRecomendacionesModule();
@@ -96,16 +97,15 @@ function initAllFormValidations() {
     const forms = document.querySelectorAll('.modal-form');
     forms.forEach(form => {
         const submitButton = form.querySelector('button[type="submit"]');
-        const requiredInputs = Array.from(form.querySelectorAll('[required]'));
-
+        
         const validate = () => {
+            const requiredInputs = Array.from(form.querySelectorAll('[required]'));
             const isFormValid = requiredInputs.every(input => {
-                // No validar campos que están dentro de un div oculto
                 if (input.closest('.hidden')) {
                     return true;
                 }
                 if (input.type === 'file' && input.required) {
-                    return input.files.length > 0;
+                    return true; 
                 }
                 return input.value.trim() !== '';
             });
@@ -155,6 +155,74 @@ async function poblarSelectConAPI(url, selectId, valueField, textField, placehol
         console.error(`Fallo en poblarSelect ${selectId}:`, error);
         showNotification(`Error al cargar datos para ${selectId}`, 'error');
     }
+}
+
+const fileManagers = {};
+
+function initFileInputManagers() {
+    const fileInputs = [
+        { inputId: 'sesion-files-input', listId: 'sesion-files-list' },
+        { inputId: 'informe-files-input', listId: 'informe-files-list' },
+        { inputId: 'recomendacion-files-input', listId: 'recomendacion-files-list' }
+    ];
+
+    fileInputs.forEach(({ inputId, listId }) => {
+        const inputElement = document.getElementById(inputId);
+        const listElement = document.getElementById(listId);
+
+        if (inputElement && listElement) {
+            let files = [];
+            const form = inputElement.closest('form');
+
+            const renderFiles = () => {
+                listElement.innerHTML = '';
+                if (files.length === 0) {
+                    listElement.innerHTML = '<p style="text-align:center; color:#888;">No hay archivos seleccionados.</p>';
+                } else {
+                    files.forEach((file, index) => {
+                        const item = document.createElement('div');
+                        item.className = 'file-list-item';
+                        item.innerHTML = `
+                            <span>${file.name}</span>
+                            <button type="button" class="remove-file-btn" data-index="${index}">&times;</button>
+                        `;
+                        listElement.appendChild(item);
+                    });
+                }
+                if (form && formValidators[form.id]) {
+                    formValidators[form.id].validate();
+                }
+            };
+
+            inputElement.addEventListener('change', () => {
+                Array.from(inputElement.files).forEach(newFile => {
+                    if (!files.some(existingFile => existingFile.name === newFile.name)) {
+                        files.push(newFile);
+                    }
+                });
+                inputElement.value = '';
+                renderFiles();
+            });
+
+            listElement.addEventListener('click', (e) => {
+                if (e.target.classList.contains('remove-file-btn')) {
+                    const index = parseInt(e.target.dataset.index, 10);
+                    files.splice(index, 1);
+                    renderFiles();
+                }
+            });
+
+            fileManagers[inputId] = {
+                getFiles: () => files,
+                clearFiles: () => {
+                    files = [];
+                    renderFiles();
+                }
+            };
+            
+            renderFiles();
+        }
+    });
 }
 
 // =============================================================
@@ -362,6 +430,8 @@ function abrirModalEjecucion({ modo, idCalendario = null, sesionData = null }) {
     const modalTitle = document.getElementById('modal-title');
     form.reset();
     
+    fileManagers['sesion-files-input'].clearFiles();
+
     form.querySelector('#id_calendario_hidden').value = '';
     form.querySelector('#id_ejecucion_hidden').value = '';
     
@@ -387,6 +457,10 @@ async function handleEjecucionSubmit(event) {
     event.preventDefault();
     const form = event.target;
     const formData = new FormData(form);
+    
+    const files = fileManagers['sesion-files-input'].getFiles();
+    formData.delete('files');
+
     const idCalendario = formData.get('id_calendario');
     const idEjecucion = formData.get('id_ejecucion');
 
@@ -414,11 +488,12 @@ async function handleEjecucionSubmit(event) {
     try {
         const response = await fetchAPI(url, { method, body: formData });
         const newEjecucionId = response.id_ejecucion;
-        const file = formData.get('acta_file');
 
-        if (file && file.size > 0 && newEjecucionId) {
+        if (files.length > 0 && newEjecucionId) {
             const fileFormData = new FormData();
-            fileFormData.append('file', file);
+            for (const file of files) {
+                fileFormData.append('files', file);
+            }
             fileFormData.append('parent_type', 'sesion');
             fileFormData.append('parent_id', newEjecucionId);
             await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: fileFormData });
@@ -444,7 +519,6 @@ function initReportesModule() {
     document.getElementById('informes-tbody')?.addEventListener('click', handleInformeRowClick);
     document.getElementById('btn-volver-a-informes')?.addEventListener('click', showReportesMainView);
     document.getElementById('btn-nueva-recomendacion-informe')?.addEventListener('click', () => handleNuevaRecomendacionClick({ informe: currentInformeData[currentInformeId] }));
-    document.getElementById('recomendacion-form')?.addEventListener('submit', handleRecomendacionFormSubmit);
     
     document.getElementById('responsable-select-informe')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'institucion-select-informe', 'organo-select-informe'));
     document.getElementById('institucion-select-informe')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'organo-select-informe'));
@@ -459,6 +533,8 @@ function initReportesModule() {
     });
     document.getElementById('filtro-informe-organo')?.addEventListener('change', cargarInformes);
     
+    // CORRECCIÓN: Listeners restaurados
+    document.getElementById('recomendacion-form')?.addEventListener('submit', handleRecomendacionFormSubmit);
     document.getElementById('recomendaciones-informe-tbody')?.addEventListener('click', handleRecomendacionesTableClick);
     document.getElementById('recomendacion-detalle-modal')?.addEventListener('click', handleDetalleRecomendacionModalClick);
     
@@ -566,6 +642,7 @@ async function cargarInformes() {
 async function handleNuevoInformeClick() { 
     const form = document.getElementById('informe-form');
     form.reset();
+    fileManagers['informe-files-input'].clearFiles();
     document.getElementById('id_informe_hidden_form').value = '';
     document.getElementById('informe-modal-title').textContent = "Nuevo Informe";
     
@@ -596,8 +673,8 @@ async function handleInformeFormSubmit(event) {
     const form = event.target;
     const formData = new FormData(form);
     
-    const file = formData.get('soporte_file');
-    formData.delete('soporte_file');
+    const files = fileManagers['informe-files-input'].getFiles();
+    formData.delete('files');
 
     const informeId = formData.get('id_informe');
     const method = informeId ? 'PUT' : 'POST';
@@ -607,9 +684,11 @@ async function handleInformeFormSubmit(event) {
         const response = await fetchAPI(url, { method, body: formData });
         const newInformeId = informeId || response.id_informe;
 
-        if (file && file.size > 0) {
+        if (files.length > 0) {
             const fileFormData = new FormData();
-            fileFormData.append('file', file);
+            for (const file of files) {
+                fileFormData.append('files', file);
+            }
             fileFormData.append('parent_type', 'informe');
             fileFormData.append('parent_id', newInformeId);
             await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: fileFormData });
@@ -762,7 +841,8 @@ function renderRecomendaciones(recomendaciones, tbodyId) {
 async function handleNuevaRecomendacionClick({ informe = null }) {
     const form = document.getElementById('recomendacion-form');
     form.reset();
-    
+    fileManagers['recomendacion-files-input'].clearFiles();
+
     const independentFieldsDiv = document.getElementById('rec-independent-fields');
     const independentSelects = independentFieldsDiv.querySelectorAll('select');
     const hiddenInformeId = document.getElementById('id_informe_hidden_rec');
@@ -802,8 +882,8 @@ async function handleRecomendacionFormSubmit(event) {
         }
     }
 
-    const file = formData.get('evidencia_file');
-    formData.delete('evidencia_file');
+    const files = fileManagers['recomendacion-files-input'].getFiles();
+    formData.delete('files');
 
     const recId = formData.get('id_recomendacion');
     const method = recId ? 'PUT' : 'POST';
@@ -813,9 +893,11 @@ async function handleRecomendacionFormSubmit(event) {
         const response = await fetchAPI(url, { method, body: formData });
         const newRecId = recId || response.id_recomendacion;
 
-        if (file && file.size > 0 && newRecId) {
+        if (files.length > 0) {
             const fileFormData = new FormData();
-            fileFormData.append('file', file);
+            for(const file of files) {
+                fileFormData.append('files', file);
+            }
             fileFormData.append('parent_type', 'recomendacion');
             fileFormData.append('parent_id', newRecId);
             await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: fileFormData });
@@ -928,18 +1010,21 @@ async function handleEditRecomendacion(recId) {
     form.querySelector('[name="prioridad"]').value = rec.prioridad;
     form.querySelector('[name="tipo_recomendacion"]').value = rec.tipo_recomendacion;
     
-    if (rec.id_informe) {
-        // No es necesario poblar los selectores si viene de un informe
-    } else {
-        // Lógica para poblar los selectores si es independiente
+    if (!rec.id_informe) {
         const respSelect = document.getElementById('rec-responsable-select');
         const instSelect = document.getElementById('rec-institucion-select');
         const orgSelect = document.getElementById('rec-organo-select');
         
-        // Esta parte puede ser compleja, ya que necesitamos encontrar el responsable de la institución
-        // Por ahora, lo dejaremos para que el usuario lo seleccione.
+        if (rec.id_responsable) {
+            respSelect.value = rec.id_responsable;
+            await poblarInstituciones(rec.id_responsable, 'rec-institucion-select', 'rec-organo-select');
+            instSelect.value = rec.id_institucion;
+            await poblarOrganosColegiados(rec.id_institucion, 'rec-organo-select');
+            orgSelect.value = rec.id_organo_colegiado;
+        }
     }
 
+    // CORRECCIÓN: Llamar a la validación explícitamente después de poblar el formulario.
     formValidators[form.id].validate();
 }
 

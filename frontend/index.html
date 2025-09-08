@@ -177,6 +177,37 @@
                 opacity: 0;
             }
         }
+
+        /* AJUSTE: Estilos para la lista de archivos seleccionados */
+        .file-list-container {
+            margin-top: 10px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            min-height: 40px;
+            background-color: #f8f9fa;
+        }
+        .file-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px;
+            background-color: #fff;
+            border: 1px solid #eee;
+            border-radius: 3px;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        .remove-file-btn {
+            cursor: pointer;
+            color: var(--color-danger);
+            font-weight: bold;
+            border: none;
+            background: none;
+            font-size: 1.2em;
+            padding: 0 5px;
+        }
+
     </style>
 </head>
 <body>
@@ -258,7 +289,6 @@
         <div class="container">
             <div class="header">
                 <h1>Gestión de Recomendaciones</h1>
-                <!-- AJUSTE: Botón ahora es igual al de informes -->
                 <button id="btn-nueva-recomendacion-independiente" class="btn-primary">Crear Recomendación</button>
             </div>
             <div class="filtros">
@@ -290,7 +320,11 @@
                 <div><label>Número de Oficio:</label><input type="text" name="numero_sesion_oficial" required></div>
                 <div><label>Fecha Real de Ejecución:</label><input type="date" name="fecha_real" required></div>
                 <div><label>Responsable de la Ejecución:</label><input type="text" name="responsable" required></div>
-                <div><label>Acta Firmada (Opcional):</label><input type="file" name="acta_file"></div>
+                <div>
+                    <label>Documentos (Acta, etc.):</label>
+                    <input type="file" name="files" id="sesion-files-input" multiple>
+                    <div id="sesion-files-list" class="file-list-container"></div>
+                </div>
                 <button type="submit" class="btn-primary" disabled>Guardar</button>
             </form>
         </div>
@@ -322,7 +356,11 @@
                 <div><label>Tipo de Informe:</label><select name="tipo_informe" required><option value="">Seleccione...</option><option>Informe de Autoevaluación</option><option>Informe de Estados Financieros</option><option>RAAD</option></select></div>
                 <div><label for="informe-descripcion">Descripción (Opcional):</label><textarea id="informe-descripcion" name="descripcion" rows="3"></textarea></div>
                 <div><label>Fecha de Emisión:</label><input type="date" name="fecha_informe" required></div>
-                <div><label>Documento Soporte (Opcional):</label><input type="file" name="soporte_file"></div>
+                <div>
+                    <label>Documentos de Soporte:</label>
+                    <input type="file" name="files" id="informe-files-input" multiple>
+                    <div id="informe-files-list" class="file-list-container"></div>
+                </div>
                 <button type="submit" class="btn-primary" disabled>Guardar</button>
             </form>
         </div>
@@ -337,15 +375,11 @@
                 <input type="hidden" id="id_recomendacion_hidden" name="id_recomendacion">
                 <input type="hidden" id="id_informe_hidden_rec" name="id_informe">
                 
-                <!-- AJUSTE: Contenedor para los campos de creación independiente -->
                 <div id="rec-independent-fields">
                     <div><label>Responsable:</label><select id="rec-responsable-select" name="id_responsable" required></select></div>
                     <div><label>Institución:</label><select id="rec-institucion-select" name="id_institucion" required disabled></select></div>
                     <div><label>Órgano Colegiado:</label><select id="rec-organo-select" name="id_organo_colegiado" required disabled></select></div>
                 </div>
-
-                <input type="hidden" id="id_institucion_hidden_rec" name="id_institucion">
-                <input type="hidden" id="id_organo_colegiado_hidden_rec" name="id_organo_colegiado">
                 
                 <div><label>Descripción:</label><textarea name="descripcion" required rows="3"></textarea></div>
                 <div><label>Área Responsable:</label><input type="text" name="area_responsable_atencion" required></div>
@@ -357,7 +391,11 @@
                 <hr>
                 <h3>Evidencias</h3>
                 <ul id="recomendacion-evidencia-list"><li>No hay evidencias.</li></ul>
-                <div><label>Cargar Nueva Evidencia (Opcional):</label><input type="file" name="evidencia_file"></div>
+                <div>
+                    <label>Cargar Nuevas Evidencias:</label>
+                    <input type="file" name="files" id="recomendacion-files-input" multiple>
+                    <div id="recomendacion-files-list" class="file-list-container"></div>
+                </div>
                 <button type="submit" class="btn-primary" disabled>Guardar</button>
             </form>
         </div>
