@@ -23,7 +23,6 @@ def get_db_connection():
 # =============================================================
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
-    # AJUSTE: Cambiado a getlist para manejar múltiples archivos
     files = request.files.getlist('files')
     if not files or files[0].filename == '':
         return jsonify({"error": "No se encontraron archivos"}), 400
@@ -37,8 +36,6 @@ def upload_file():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # AJUSTE: Lógica de reemplazo (borrado lógico)
-    # Antes de subir nuevos archivos, marcamos los existentes como inactivos.
     sql_soft_delete = "UPDATE Evidencias SET activo = FALSE WHERE parent_type = %s AND parent_id = %s;"
     cur.execute(sql_soft_delete, (parent_type, parent_id))
 
@@ -344,10 +341,12 @@ def manejar_recomendaciones():
         institucion_id = request.args.get('institucion_id', type=int)
         organo_id = request.args.get('organo_id', type=int)
         
+        # CORRECCIÓN: Se añade i.id_responsable para asegurar que el frontend tenga los datos para editar.
         sql = """
             SELECT 
                 r.*, 
                 i.siglas,
+                i.id_responsable, 
                 org.nombre_organo,
                 (SELECT COUNT(*) 
                  FROM Evidencias e 
