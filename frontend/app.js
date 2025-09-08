@@ -22,7 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- INICIALIZACIÓN DE MÓDULOS ---
-    initAllModals(); 
+    initAllModals();
+    initConfirmModal();
     initAllFormValidations();
     initSesionesModule();
     initReportesModule();
@@ -61,6 +62,35 @@ function initAllModals() {
     });
 }
 
+let confirmCallback = null;
+function showConfirmModal(title, message, onConfirm) {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-body').textContent = message;
+    document.getElementById('confirm-modal').style.display = 'flex';
+    confirmCallback = onConfirm;
+}
+
+function initConfirmModal() {
+    const confirmOkBtn = document.getElementById('confirm-ok-btn');
+    const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+    const confirmModal = document.getElementById('confirm-modal');
+
+    const closeModal = () => {
+        confirmModal.style.display = 'none';
+        confirmCallback = null;
+    };
+
+    confirmOkBtn.addEventListener('click', () => {
+        if (typeof confirmCallback === 'function') {
+            confirmCallback();
+        }
+        closeModal();
+    });
+
+    confirmCancelBtn.addEventListener('click', closeModal);
+}
+
+
 const formValidators = {};
 function initAllFormValidations() {
     const forms = document.querySelectorAll('.modal-form');
@@ -70,14 +100,18 @@ function initAllFormValidations() {
 
         const validate = () => {
             const isFormValid = requiredInputs.every(input => {
-                // For file inputs, required means a file must be selected, but only if it's visible/part of the current flow.
-                // In edit mode, the file input is optional.
+                // No validar campos que están dentro de un div oculto
+                if (input.closest('.hidden')) {
+                    return true;
+                }
                 if (input.type === 'file' && input.required) {
                     return input.files.length > 0;
                 }
                 return input.value.trim() !== '';
             });
-            submitButton.disabled = !isFormValid;
+            if (submitButton) {
+                submitButton.disabled = !isFormValid;
+            }
         };
 
         form.addEventListener('input', validate);
@@ -95,13 +129,17 @@ async function fetchAPI(url, options = {}) {
             options.body = JSON.stringify(options.body);
         }
     }
+    
     const response = await fetch(url, options);
+    
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: `Error HTTP: ${response.status}` }));
         throw new Error(errorData.error || `Error HTTP: ${response.status}`);
     }
+    
     return response.status !== 204 ? response.json() : null;
 }
+
 
 async function poblarSelectConAPI(url, selectId, valueField, textField, placeholder) {
     try {
@@ -126,7 +164,7 @@ let sesionesData = {};
 
 function initSesionesModule() {
     document.getElementById('filtro-responsable')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'filtro-institucion', 'filtro-organo'));
-    document.getElementById('filtro-institucion')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value));
+    document.getElementById('filtro-institucion')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'filtro-organo', buscarCalendario));
     document.getElementById('filtro-organo')?.addEventListener('change', buscarCalendario);
     document.getElementById('filtro-año')?.addEventListener('change', buscarCalendario);
     document.getElementById('calendario-container')?.addEventListener('click', handleCalendarioClick);
@@ -137,6 +175,16 @@ function initSesionesModule() {
 }
 
 async function resetSesionesView() {
+    const añoSelect = document.getElementById('filtro-año');
+    if (añoSelect) {
+        const añoActual = new Date().getFullYear();
+        añoSelect.innerHTML = '';
+        for (let i = 2030; i >= 2024; i--) {
+            añoSelect.add(new Option(i, i));
+        }
+        añoSelect.value = añoActual;
+    }
+
     const filtroResponsable = document.getElementById('filtro-responsable');
     if (filtroResponsable) {
         await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-responsable', 'id_responsable', 'nombre_responsable', 'Seleccione un responsable...');
@@ -164,7 +212,9 @@ async function poblarInstituciones(responsableId, institucionSelectId, organoSel
         }
     }
     if (!responsableId) { 
-        if (organoSelectId) buscarCalendario();
+        if (organoSelectId && typeof buscarCalendario === 'function') buscarCalendario();
+        if (organoSelectId && typeof cargarRecomendacionesIndependientes === 'function') cargarRecomendacionesIndependientes();
+        if (institucionSelectId === 'filtro-informe-institucion') cargarInformes();
         return; 
     }
     try {
@@ -175,17 +225,19 @@ async function poblarInstituciones(responsableId, institucionSelectId, organoSel
 }
 
 
-async function poblarOrganosColegiados(institucionId) {
-    const selectOrgano = document.getElementById('filtro-organo');
+async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn = null) {
+    const selectOrgano = document.getElementById(organoSelectId);
     selectOrgano.innerHTML = '<option value="">Seleccione...</option>';
     selectOrgano.disabled = true;
-    if (!institucionId) { buscarCalendario(); return; }
+    if (!institucionId) { 
+        if (callbackFn) callbackFn();
+        return; 
+    }
     try {
         selectOrgano.innerHTML = '<option value="">Cargando...</option>';
-        const organos = await poblarSelectConAPI(`http://localhost:5001/api/organos-colegiados?institucion_id=${institucionId}`, 'filtro-organo', 'id_organo_colegiado', 'nombre_organo', 'Seleccione...');
+        await poblarSelectConAPI(`http://localhost:5001/api/organos-colegiados?institucion_id=${institucionId}`, organoSelectId, 'id_organo_colegiado', 'nombre_organo', 'Seleccione...');
         selectOrgano.disabled = false;
-        if (organos && organos.length === 1) { selectOrgano.value = organos[0].id_organo_colegiado; }
-        buscarCalendario();
+        if (callbackFn) callbackFn();
     } catch (error) { console.error("Fallo en poblarOrganosColegiados:", error); }
 }
 
@@ -391,23 +443,52 @@ function initReportesModule() {
     document.getElementById('informe-form')?.addEventListener('submit', handleInformeFormSubmit);
     document.getElementById('informes-tbody')?.addEventListener('click', handleInformeRowClick);
     document.getElementById('btn-volver-a-informes')?.addEventListener('click', showReportesMainView);
-    document.getElementById('btn-nueva-recomendacion-informe')?.addEventListener('click', () => handleNuevaRecomendacionClick({ informeId: currentInformeId, institucionId: currentInformeData[currentInformeId]?.id_institucion }));
+    document.getElementById('btn-nueva-recomendacion-informe')?.addEventListener('click', () => handleNuevaRecomendacionClick({ informe: currentInformeData[currentInformeId] }));
     document.getElementById('recomendacion-form')?.addEventListener('submit', handleRecomendacionFormSubmit);
-    document.getElementById('responsable-select')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'institucion-select'));
+    
+    document.getElementById('responsable-select-informe')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'institucion-select-informe', 'organo-select-informe'));
+    document.getElementById('institucion-select-informe')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'organo-select-informe'));
+
     document.getElementById('filtro-informe-periodo')?.addEventListener('change', cargarInformes);
-    document.getElementById('filtro-informe-responsable')?.addEventListener('change', cargarInformes);
+    document.getElementById('filtro-informe-responsable')?.addEventListener('change', (e) => {
+        poblarInstituciones(e.target.value, 'filtro-informe-institucion', 'filtro-informe-organo');
+        cargarInformes(); 
+    });
+    document.getElementById('filtro-informe-institucion')?.addEventListener('change', (e) => {
+        poblarOrganosColegiados(e.target.value, 'filtro-informe-organo', cargarInformes);
+    });
+    document.getElementById('filtro-informe-organo')?.addEventListener('change', cargarInformes);
+    
     document.getElementById('recomendaciones-informe-tbody')?.addEventListener('click', handleRecomendacionesTableClick);
-    document.getElementById('evidencia-form')?.addEventListener('submit', handleEvidenciaFormSubmit);
-    poblarFiltrosInformes();
+    document.getElementById('recomendacion-detalle-modal')?.addEventListener('click', handleDetalleRecomendacionModalClick);
+    
+    poblarFiltrosInformes().then(cargarInformes);
 }
 
 let currentInformeId = null;
-let currentRecomendacionId = null;
 let currentRecomendacionData = {};
 let currentInformeData = {};
 let currentView = 'informes';
 
 function showReportesMainView() {
+    const periodoSelect = document.getElementById('filtro-informe-periodo');
+    if (periodoSelect) periodoSelect.value = "";
+    
+    const responsableSelect = document.getElementById('filtro-informe-responsable');
+    if (responsableSelect) responsableSelect.value = "";
+    
+    const institucionSelect = document.getElementById('filtro-informe-institucion');
+    if (institucionSelect) {
+        institucionSelect.innerHTML = '<option value="">Todos</option>';
+        institucionSelect.disabled = true;
+    }
+
+    const organoSelect = document.getElementById('filtro-informe-organo');
+    if (organoSelect) {
+        organoSelect.innerHTML = '<option value="">Todos</option>';
+        organoSelect.disabled = true;
+    }
+
     document.getElementById('reportes-main-view').classList.remove('hidden');
     document.getElementById('reportes-detail-view').classList.add('hidden');
     cargarInformes();
@@ -421,34 +502,61 @@ function showReportesDetailView() {
 async function poblarFiltrosInformes() {
     try {
         const periodoSelect = document.getElementById('filtro-informe-periodo');
-        const añoActual = new Date().getFullYear();
         periodoSelect.innerHTML = '<option value="">Todos</option>';
         for (let i = 2030; i >= 2024; i--) {
             periodoSelect.add(new Option(i, i));
         }
         await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-informe-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+        
+        document.getElementById('filtro-informe-institucion').innerHTML = '<option value="">Todos</option>';
+        document.getElementById('filtro-informe-institucion').disabled = true;
+        document.getElementById('filtro-informe-organo').innerHTML = '<option value="">Todos</option>';
+        document.getElementById('filtro-informe-organo').disabled = true;
+
     } catch (error) { console.error("Error al poblar filtros de informes:", error); }
 }
 
 async function cargarInformes() {
     const periodo = document.getElementById('filtro-informe-periodo').value;
     const responsableId = document.getElementById('filtro-informe-responsable').value;
+    const institucionId = document.getElementById('filtro-informe-institucion').value;
+    const organoId = document.getElementById('filtro-informe-organo').value;
+
     let url = new URL('http://localhost:5001/api/informes');
     if (periodo) url.searchParams.append('periodo', periodo);
     if (responsableId) url.searchParams.append('responsable_id', responsableId);
+    if (institucionId) url.searchParams.append('institucion_id', institucionId);
+    if (organoId) url.searchParams.append('organo_id', organoId);
+
     try {
         const informes = await fetchAPI(url);
         const tbody = document.getElementById('informes-tbody');
         tbody.innerHTML = '';
         currentInformeData = {};
         if (informes.length === 0) {
-            tbody.innerHTML = '<tr class="no-hover"><td colspan="7">No hay informes.</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="9">No se encontraron informes con los filtros seleccionados.</td></tr>`;
         } else {
             informes.forEach(informe => {
                 currentInformeData[informe.id_informe] = informe;
                 const tr = document.createElement('tr');
                 tr.dataset.informeId = informe.id_informe;
-                tr.innerHTML = `<td data-cell="institucion">${informe.siglas}</td><td data-cell="tipo">${informe.tipo_informe}</td><td data-cell="periodo">${informe.periodo}</td><td data-cell="fecha">${new Date(informe.fecha_informe).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</td><td data-cell="responsable">${informe.nombre_responsable}</td><td data-cell="recomendaciones">${informe.atendidas_recomendaciones} / ${informe.total_recomendaciones}</td><td class="actions-cell"><button class="btn-primary btn-view-detail">Ver Detalle</button><button class="btn-warning btn-edit-informe">Editar</button><button class="btn-danger btn-delete-informe">Eliminar</button></td>`;
+                tr.innerHTML = `
+                    <td>${informe.siglas}</td>
+                    <td>${informe.nombre_organo}</td>
+                    <td>${informe.descripcion ? informe.descripcion.substring(0, 40) + '...' : 'Sin descripción'}</td>
+                    <td>${informe.tipo_informe}</td>
+                    <td>${informe.periodo}</td>
+                    <td>${new Date(informe.fecha_informe).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</td>
+                    <td>${informe.nombre_responsable}</td>
+                    <td>
+                        <div>Emitidas: ${informe.recomendaciones_emitidas}</div>
+                        <div>Atendidas: ${informe.recomendaciones_atendidas}</div>
+                    </td>
+                    <td class="actions-cell">
+                        <button class="btn-info btn-view-detail">Ver</button>
+                        <button class="btn-warning btn-edit-informe">Editar</button>
+                        <button class="btn-danger btn-delete-informe">Eliminar</button>
+                    </td>`;
                 tbody.appendChild(tr);
             });
         }
@@ -460,10 +568,13 @@ async function handleNuevoInformeClick() {
     form.reset();
     document.getElementById('id_informe_hidden_form').value = '';
     document.getElementById('informe-modal-title').textContent = "Nuevo Informe";
-    document.getElementById('responsable-select').disabled = false;
-    document.getElementById('institucion-select').disabled = true;
+    
+    document.getElementById('responsable-select-informe').disabled = false;
+    document.getElementById('institucion-select-informe').disabled = true;
+    document.getElementById('organo-select-informe').disabled = true;
+    
     try {
-        await poblarSelectConAPI('http://localhost:5001/api/responsables', 'responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+        await poblarSelectConAPI('http://localhost:5001/api/responsables', 'responsable-select-informe', 'id_responsable', 'nombre_responsable', 'Seleccione...');
         
         const periodoSelect = document.getElementById('periodo-select');
         const añoActual = new Date().getFullYear();
@@ -473,7 +584,8 @@ async function handleNuevoInformeClick() {
         }
         periodoSelect.value = añoActual;
         
-        document.getElementById('institucion-select').innerHTML = '<option value="">Seleccione un responsable...</option>';
+        document.getElementById('institucion-select-informe').innerHTML = '<option value="">Seleccione un responsable...</option>';
+        document.getElementById('organo-select-informe').innerHTML = '<option value="">Seleccione una institución...</option>';
         document.getElementById('informe-modal').style.display = 'flex';
         formValidators[form.id].validate();
     } catch (error) { console.error("Error al preparar formulario:", error); }
@@ -483,29 +595,33 @@ async function handleInformeFormSubmit(event) {
     event.preventDefault();
     const form = event.target;
     const formData = new FormData(form);
+    
     const file = formData.get('soporte_file');
     formData.delete('soporte_file');
-    
+
     const informeId = formData.get('id_informe');
     const method = informeId ? 'PUT' : 'POST';
     const url = informeId ? `http://localhost:5001/api/informes/${informeId}` : 'http://localhost:5001/api/informes';
     
     try {
-        const response = await fetchAPI(url, { method, body: Object.fromEntries(formData) });
+        const response = await fetchAPI(url, { method, body: formData });
         const newInformeId = informeId || response.id_informe;
-        if (file && file.size > 0 && newInformeId) {
+
+        if (file && file.size > 0) {
             const fileFormData = new FormData();
             fileFormData.append('file', file);
             fileFormData.append('parent_type', 'informe');
             fileFormData.append('parent_id', newInformeId);
             await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: fileFormData });
         }
+
         form.reset();
         document.getElementById('informe-modal').style.display = 'none';
         showNotification('Informe guardado exitosamente.');
         cargarInformes();
     } catch (error) { console.error("Error al guardar informe:", error); showNotification(`Error: ${error.message}`, 'error'); }
 }
+
 
 async function handleInformeRowClick(event) {
     const target = event.target;
@@ -528,29 +644,43 @@ async function handleEditInforme(informeId) {
     const form = document.getElementById('informe-form');
     const responsableSelect = form.querySelector('[name="id_responsable"]');
     const institucionSelect = form.querySelector('[name="id_institucion"]');
-    const fechaUTC = new Date(informe.fecha_informe);
-    const fechaLocal = new Date(fechaUTC.getTime() + fechaUTC.getTimezoneOffset() * 60000);
-    form.querySelector('[name="fecha_informe"]').value = fechaLocal.toISOString().split('T')[0];
+    const organoSelect = form.querySelector('[name="id_organo_colegiado"]');
+    
+    form.querySelector('[name="fecha_informe"]').value = new Date(informe.fecha_informe).toISOString().split('T')[0];
     form.querySelector('[name="id_informe"]').value = informe.id_informe;
     form.querySelector('[name="periodo"]').value = informe.periodo;
+    form.querySelector('[name="descripcion"]').value = informe.descripcion || '';
     responsableSelect.value = informe.id_responsable;
-    await poblarInstituciones(informe.id_responsable, 'institucion-select'); 
+    
+    await poblarInstituciones(informe.id_responsable, 'institucion-select-informe', 'organo-select-informe'); 
     institucionSelect.value = informe.id_institucion;
+    
+    await poblarOrganosColegiados(informe.id_institucion, 'organo-select-informe');
+    organoSelect.value = informe.id_organo_colegiado;
+    
     form.querySelector('[name="tipo_informe"]').value = informe.tipo_informe;
     responsableSelect.disabled = true;
     institucionSelect.disabled = true;
+    organoSelect.disabled = false;
     document.getElementById('informe-modal-title').textContent = "Editar Informe";
     formValidators[form.id].validate();
 }
 
 async function handleDeleteInforme(informeId) {
-    if (confirm("¿Estás seguro de que deseas eliminar este informe y todas sus recomendaciones?")) {
-        try {
-            await fetchAPI(`http://localhost:5001/api/informes/${informeId}`, { method: 'DELETE' });
-            showNotification('Informe eliminado.');
-            cargarInformes();
-        } catch (error) { console.error("Error al eliminar informe:", error); showNotification(`Error: ${error.message}`, 'error'); }
-    }
+    showConfirmModal(
+        'Confirmar Eliminación de Informe',
+        '¿Estás seguro de que deseas eliminar este informe y todas sus recomendaciones asociadas? Esta acción no se puede deshacer.',
+        async () => {
+            try {
+                await fetchAPI(`http://localhost:5001/api/informes/${informeId}`, { method: 'DELETE' });
+                showNotification('Informe eliminado.');
+                cargarInformes();
+            } catch (error) { 
+                console.error("Error al eliminar informe:", error); 
+                showNotification(`Error: ${error.message}`, 'error'); 
+            }
+        }
+    );
 }
 
 async function cargarVistaDeDetalle(informeId) {
@@ -562,7 +692,14 @@ async function cargarVistaDeDetalle(informeId) {
             fetchAPI(`http://localhost:5001/api/evidencias?parent_type=informe&parent_id=${informeId}`)
         ]);
         currentInformeData[informeId] = { ...currentInformeData[informeId], ...informe };
-        document.getElementById('informe-detalle-header').innerHTML = `<h2>${informe.tipo_informe} - ${informe.periodo}</h2><p><strong>Institución:</strong> ${informe.nombre_institucion}</p>`;
+        document.getElementById('informe-detalle-header').innerHTML = `
+            <h2>${informe.nombre_institucion}</h2>
+            <p><strong>Órgano Colegiado:</strong> ${informe.nombre_organo}</p>
+            <p><strong>Tipo de Informe:</strong> ${informe.tipo_informe} - ${informe.periodo}</p>
+            <hr>
+            <p><strong>Descripción:</strong></p>
+            <p>${informe.descripcion || 'No se proporcionó una descripción.'}</p>
+        `;
         const evidenciasList = document.getElementById('informe-evidencias-list');
         evidenciasList.innerHTML = '';
         if (evidencias.length > 0) {
@@ -584,50 +721,106 @@ function renderRecomendaciones(recomendaciones, tbodyId) {
     const tbody = document.getElementById(tbodyId);
     tbody.innerHTML = '';
     currentRecomendacionData = {};
-    const includeInformeColumn = tbodyId === 'recomendaciones-independientes-tbody';
+    const isIndependentView = tbodyId === 'recomendaciones-independientes-tbody';
+    const colspan = isIndependentView ? 11 : 9;
 
     if (recomendaciones.length === 0) {
-        const colspan = includeInformeColumn ? 8 : 7;
         tbody.innerHTML = `<tr><td colspan="${colspan}">No hay recomendaciones.</td></tr>`;
     } else {
         recomendaciones.forEach(rec => {
             currentRecomendacionData[rec.id_recomendacion] = rec;
             const tr = document.createElement('tr');
             tr.dataset.recomendacionId = rec.id_recomendacion;
-            const informeCell = includeInformeColumn ? `<td>${rec.id_informe || 'N/A'}</td>` : '';
-            tr.innerHTML = `<td>${rec.descripcion}</td><td>${rec.area_responsable_atencion}</td><td>${rec.fecha_compromiso ? new Date(rec.fecha_compromiso).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'N/A'}</td><td>${rec.estatus}</td><td>${rec.prioridad}</td>${informeCell}<td>${rec.evidencias_count || 0}</td><td class="actions-cell"><button class="btn-warning btn-edit-rec">Editar</button><button class="btn-danger btn-delete-rec">Eliminar</button><button class="btn-info btn-evidencia-rec">Evidencia</button></td>`;
+
+            const institucionCell = isIndependentView ? `<td>${rec.siglas}</td>` : '';
+            const organoCell = isIndependentView ? `<td>${rec.nombre_organo}</td>` : '';
+            const informeCell = isIndependentView ? `<td>${rec.id_informe || 'Independiente'}</td>` : '';
+            
+            tr.innerHTML = `
+                ${institucionCell}
+                ${organoCell}
+                <td>${rec.descripcion}</td>
+                <td>${rec.area_responsable_atencion}</td>
+                ${!isIndependentView ? `<td>${rec.nombre_organo}</td>` : ''}
+                <td>${new Date(rec.fecha_emision).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</td>
+                <td>${rec.fecha_compromiso ? new Date(rec.fecha_compromiso).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'N/A'}</td>
+                <td>${rec.estatus}</td>
+                <td>${rec.prioridad}</td>
+                ${informeCell}
+                <td>${rec.evidencias_count || 0}</td>
+                <td class="actions-cell">
+                    <button class="btn-primary btn-view-rec">Detalle</button>
+                    <button class="btn-warning btn-edit-rec">Editar</button>
+                    <button class="btn-danger btn-delete-rec">Eliminar</button>
+                </td>`;
             tbody.appendChild(tr);
         });
     }
 }
 
 
-function handleNuevaRecomendacionClick({ informeId = null, institucionId = null }) {
-    if (!informeId && !institucionId) {
-        showNotification("Error: No se puede crear recomendación sin contexto.", 'error');
-        return;
-    }
+async function handleNuevaRecomendacionClick({ informe = null }) {
     const form = document.getElementById('recomendacion-form');
     form.reset();
+    
+    const independentFieldsDiv = document.getElementById('rec-independent-fields');
+    const independentSelects = independentFieldsDiv.querySelectorAll('select');
+    const hiddenInformeId = document.getElementById('id_informe_hidden_rec');
+    
+    if (informe) { 
+        document.getElementById('recomendacion-modal-title').textContent = "Nueva Recomendación para Informe";
+        independentFieldsDiv.classList.add('hidden');
+        independentSelects.forEach(sel => sel.required = false);
+        hiddenInformeId.value = informe.id_informe;
+    } else { 
+        document.getElementById('recomendacion-modal-title').textContent = "Nueva Recomendación Independiente";
+        independentFieldsDiv.classList.remove('hidden');
+        independentSelects.forEach(sel => sel.required = true);
+        hiddenInformeId.value = '';
+        await poblarSelectConAPI('http://localhost:5001/api/responsables', 'rec-responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+        document.getElementById('rec-institucion-select').innerHTML = '<option value="">Seleccione responsable...</option>';
+        document.getElementById('rec-organo-select').innerHTML = '<option value="">Seleccione institución...</option>';
+    }
+    
     document.getElementById('id_recomendacion_hidden').value = '';
-    document.getElementById('id_informe_hidden_rec').value = informeId || '';
-    document.getElementById('id_institucion_hidden_rec').value = institucionId || '';
-    document.getElementById('recomendacion-modal-title').textContent = "Nueva Recomendación";
+    form.querySelector('[name="fecha_emision"]').value = new Date().toISOString().split('T')[0];
+    document.getElementById('recomendacion-evidencia-list').innerHTML = '<li>No hay evidencias.</li>';
     document.getElementById('recomendacion-modal').style.display = 'flex';
     formValidators[form.id].validate();
 }
-
 
 async function handleRecomendacionFormSubmit(event) {
     event.preventDefault();
     const form = event.target;
     const formData = new FormData(form);
+    
+    if (formData.get('id_informe')) {
+        const informe = currentInformeData[formData.get('id_informe')];
+        if (informe) {
+            formData.set('id_institucion', informe.id_institucion);
+            formData.set('id_organo_colegiado', informe.id_organo_colegiado);
+        }
+    }
+
+    const file = formData.get('evidencia_file');
+    formData.delete('evidencia_file');
+
     const recId = formData.get('id_recomendacion');
     const method = recId ? 'PUT' : 'POST';
     const url = recId ? `http://localhost:5001/api/recomendaciones/${recId}` : 'http://localhost:5001/api/recomendaciones';
 
     try {
-        await fetchAPI(url, { method, body: Object.fromEntries(formData) });
+        const response = await fetchAPI(url, { method, body: formData });
+        const newRecId = recId || response.id_recomendacion;
+
+        if (file && file.size > 0 && newRecId) {
+            const fileFormData = new FormData();
+            fileFormData.append('file', file);
+            fileFormData.append('parent_type', 'recomendacion');
+            fileFormData.append('parent_id', newRecId);
+            await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: fileFormData });
+        }
+
         form.reset();
         document.getElementById('recomendacion-modal').style.display = 'none';
         showNotification('Recomendación guardada.');
@@ -639,148 +832,210 @@ async function handleRecomendacionFormSubmit(event) {
     } catch (error) { console.error("Error al guardar recomendación:", error); showNotification(`Error: ${error.message}`, 'error'); }
 }
 
+
 function handleRecomendacionesTableClick(event) {
     const target = event.target;
     const recId = target.closest('tr')?.dataset.recomendacionId;
     if (!recId) return;
+
+    if (target.classList.contains('btn-view-rec')) {
+        abrirModalDetalleRecomendacion(recId);
+    }
     if (target.classList.contains('btn-edit-rec')) {
         handleEditRecomendacion(recId);
     }
     if (target.classList.contains('btn-delete-rec')) {
         handleDeleteRecomendacion(recId);
     }
-    if (target.classList.contains('btn-evidencia-rec')) {
-        handleEvidenciaRecomendacion(recId);
+}
+
+async function abrirModalDetalleRecomendacion(recId) {
+    const rec = currentRecomendacionData[recId];
+    if (!rec) return;
+
+    const modal = document.getElementById('recomendacion-detalle-modal');
+    const titleEl = document.getElementById('recomendacion-detalle-title');
+    const bodyEl = document.getElementById('recomendacion-detalle-body');
+    const footerEl = document.getElementById('recomendacion-detalle-footer');
+
+    titleEl.textContent = `Detalle de la Recomendación`;
+    bodyEl.innerHTML = `
+        <p><strong>Descripción:</strong></p>
+        <p>${rec.descripcion}</p>
+        <hr>
+        <p><strong>Área Responsable:</strong> ${rec.area_responsable_atencion}</p>
+        <p><strong>Fecha Emisión:</strong> ${new Date(rec.fecha_emision).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</p>
+        <p><strong>Fecha Compromiso:</strong> ${rec.fecha_compromiso ? new Date(rec.fecha_compromiso).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'N/A'}</p>
+        <p><strong>Estatus:</strong> ${rec.estatus}</p>
+        <p><strong>Prioridad:</strong> ${rec.prioridad}</p>
+        <p><strong>Tipo:</strong> ${rec.tipo_recomendacion}</p>
+        <hr>
+        <h3>Evidencias</h3>
+        <ul id="rec-detalle-evidencia-list"><li>Cargando...</li></ul>
+    `;
+    footerEl.innerHTML = `<button id="btn-edit-rec-from-detail" class="btn-warning" data-rec-id="${recId}">Editar</button>`;
+    
+    modal.style.display = 'flex';
+
+    const evidenciaList = document.getElementById('rec-detalle-evidencia-list');
+    try {
+        const evidencias = await fetchAPI(`http://localhost:5001/api/evidencias?parent_type=recomendacion&parent_id=${recId}`);
+        if (evidencias.length > 0) {
+            evidenciaList.innerHTML = '';
+            evidencias.forEach(ev => {
+                const li = document.createElement('li');
+                li.innerHTML = `<a href="http://localhost:5001/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
+                evidenciaList.appendChild(li);
+            });
+        } else {
+            evidenciaList.innerHTML = '<li>No hay evidencias.</li>';
+        }
+    } catch (error) {
+        evidenciaList.innerHTML = '<li>Error al cargar evidencias.</li>';
     }
 }
 
-function handleEditRecomendacion(recId) {
+function handleDetalleRecomendacionModalClick(event) {
+    if (event.target.id === 'btn-edit-rec-from-detail') {
+        const recId = event.target.dataset.recId;
+        document.getElementById('recomendacion-detalle-modal').style.display = 'none';
+        handleEditRecomendacion(recId);
+    }
+}
+
+async function handleEditRecomendacion(recId) {
     const rec = currentRecomendacionData[recId];
     if (!rec) return;
+
+    await handleNuevaRecomendacionClick({ informe: rec.id_informe ? rec : null });
+
     const form = document.getElementById('recomendacion-form');
-    document.getElementById('id_informe_hidden_rec').value = rec.id_informe || '';
-    document.getElementById('id_institucion_hidden_rec').value = rec.id_institucion || '';
-    
+    document.getElementById('recomendacion-modal-title').textContent = "Editar Recomendación";
+
     form.querySelector('[name="id_recomendacion"]').value = rec.id_recomendacion;
     form.querySelector('[name="descripcion"]').value = rec.descripcion;
     form.querySelector('[name="area_responsable_atencion"]').value = rec.area_responsable_atencion;
+    
+    form.querySelector('[name="fecha_emision"]').value = new Date(rec.fecha_emision).toISOString().split('T')[0];
+
     if (rec.fecha_compromiso) {
-        const fechaUTC = new Date(rec.fecha_compromiso);
-        const fechaLocal = new Date(fechaUTC.getTime() + fechaUTC.getTimezoneOffset() * 60000);
-        form.querySelector('[name="fecha_compromiso"]').value = fechaLocal.toISOString().split('T')[0];
+        form.querySelector('[name="fecha_compromiso"]').value = new Date(rec.fecha_compromiso).toISOString().split('T')[0];
     } else {
         form.querySelector('[name="fecha_compromiso"]').value = '';
     }
+
     form.querySelector('[name="estatus"]').value = rec.estatus;
     form.querySelector('[name="prioridad"]').value = rec.prioridad;
     form.querySelector('[name="tipo_recomendacion"]').value = rec.tipo_recomendacion;
-    document.getElementById('recomendacion-modal-title').textContent = "Editar Recomendación";
-    document.getElementById('recomendacion-modal').style.display = 'flex';
+    
+    if (rec.id_informe) {
+        // No es necesario poblar los selectores si viene de un informe
+    } else {
+        // Lógica para poblar los selectores si es independiente
+        const respSelect = document.getElementById('rec-responsable-select');
+        const instSelect = document.getElementById('rec-institucion-select');
+        const orgSelect = document.getElementById('rec-organo-select');
+        
+        // Esta parte puede ser compleja, ya que necesitamos encontrar el responsable de la institución
+        // Por ahora, lo dejaremos para que el usuario lo seleccione.
+    }
+
     formValidators[form.id].validate();
 }
+
 
 async function handleDeleteRecomendacion(recId) {
-    if (confirm("¿Estás seguro de que deseas eliminar esta recomendación?")) {
-        try {
-            await fetchAPI(`http://localhost:5001/api/recomendaciones/${recId}`, { method: 'DELETE' });
-            showNotification('Recomendación eliminada.');
-            if (currentView === 'informes') {
-                cargarVistaDeDetalle(currentInformeId);
-            } else {
-                cargarRecomendacionesIndependientes();
+    showConfirmModal(
+        'Confirmar Eliminación de Recomendación',
+        '¿Estás seguro de que deseas eliminar esta recomendación?',
+        async () => {
+            try {
+                await fetchAPI(`http://localhost:5001/api/recomendaciones/${recId}`, { method: 'DELETE' });
+                showNotification('Recomendación eliminada.');
+                if (currentView === 'informes') {
+                    cargarVistaDeDetalle(currentInformeId);
+                } else {
+                    cargarRecomendacionesIndependientes();
+                }
+            } catch (error) { 
+                console.error("Error al eliminar recomendación:", error); 
+                showNotification(`Error: ${error.message}`, 'error'); 
             }
-        } catch (error) { console.error("Error al eliminar recomendación:", error); showNotification(`Error: ${error.message}`, 'error'); }
-    }
-}
-
-async function handleEvidenciaRecomendacion(recId) {
-    currentRecomendacionId = recId;
-    const form = document.getElementById('evidencia-form');
-    form.reset();
-    document.getElementById('id_parent_hidden').value = recId;
-    document.getElementById('parent_type_hidden').value = 'recomendacion';
-    const evidencias = await fetchAPI(`http://localhost:5001/api/evidencias?parent_type=recomendacion&parent_id=${recId}`);
-    const list = document.getElementById('evidencia-list');
-    list.innerHTML = '';
-    if (evidencias.length > 0) {
-        evidencias.forEach(ev => {
-            const li = document.createElement('li');
-            li.innerHTML = `<a href="http://localhost:5001/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
-            list.appendChild(li);
-        });
-    } else {
-        list.innerHTML = '<li>No hay evidencias cargadas.</li>';
-    }
-    document.getElementById('evidencia-modal').style.display = 'flex';
-    formValidators[form.id].validate();
-}
-
-async function handleEvidenciaFormSubmit(event) {
-    event.preventDefault();
-    const form = event.target;
-    const formData = new FormData(form);
-    try {
-        await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: formData });
-        form.reset();
-        document.getElementById('evidencia-modal').style.display = 'none';
-        showNotification('Evidencia subida correctamente.');
-        
-        if (currentView === 'informes') {
-            cargarVistaDeDetalle(currentInformeId);
-        } else {
-            cargarRecomendacionesIndependientes();
         }
-        handleEvidenciaRecomendacion(formData.get('parent_id'));
-    } catch (error) { console.error('Error al subir evidencia:', error); showNotification(`Error: ${error.message}`, 'error'); }
+    );
 }
-
 
 // =============================================================
 // MÓDULO PARA RECOMENDACIONES INDEPENDIENTES
 // =============================================================
 function initRecomendacionesModule() {
-    document.getElementById('filtro-rec-responsable')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'filtro-rec-institucion'));
-    document.getElementById('filtro-rec-institucion')?.addEventListener('change', cargarRecomendacionesIndependientes);
-    document.getElementById('btn-nueva-recomendacion-independiente')?.addEventListener('click', () => {
-        const institucionId = document.getElementById('filtro-rec-institucion').value;
-        if(institucionId) {
-            handleNuevaRecomendacionClick({ institucionId });
-        }
+    document.getElementById('filtro-rec-año')?.addEventListener('change', cargarRecomendacionesIndependientes);
+    document.getElementById('filtro-rec-responsable')?.addEventListener('change', (e) => {
+        poblarInstituciones(e.target.value, 'filtro-rec-institucion', 'filtro-rec-organo');
+        cargarRecomendacionesIndependientes(); 
     });
+    document.getElementById('filtro-rec-institucion')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'filtro-rec-organo', cargarRecomendacionesIndependientes));
+    document.getElementById('filtro-rec-organo')?.addEventListener('change', cargarRecomendacionesIndependientes);
+    
+    document.getElementById('btn-nueva-recomendacion-independiente')?.addEventListener('click', () => handleNuevaRecomendacionClick({}));
+    
     document.getElementById('recomendaciones-independientes-tbody')?.addEventListener('click', handleRecomendacionesTableClick);
+    
+    document.getElementById('rec-responsable-select')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'rec-institucion-select', 'rec-organo-select'));
+    document.getElementById('rec-institucion-select')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'rec-organo-select'));
+
     resetRecomendacionesView();
 }
 
 async function resetRecomendacionesView() {
-    await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-rec-responsable', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+    const añoSelect = document.getElementById('filtro-rec-año');
+    if (añoSelect) {
+        const añoActual = new Date().getFullYear();
+        añoSelect.innerHTML = '<option value="">Todos</option>';
+        for (let i = 2030; i >= 2024; i--) {
+            añoSelect.add(new Option(i, i));
+        }
+        añoSelect.value = ""; 
+    }
+
+    await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
     const instSelect = document.getElementById('filtro-rec-institucion');
-    instSelect.innerHTML = '<option value="">Seleccione un responsable...</option>';
+    instSelect.innerHTML = '<option value="">Todos</option>';
     instSelect.disabled = true;
+    
+    const organoSelect = document.getElementById('filtro-rec-organo');
+    organoSelect.innerHTML = '<option value="">Todos</option>';
+    organoSelect.disabled = true;
+
     document.getElementById('recomendaciones-independientes-tbody').innerHTML = '';
-    document.getElementById('btn-nueva-recomendacion-independiente').disabled = true;
+    document.getElementById('btn-nueva-recomendacion-independiente').disabled = false;
+
+    cargarRecomendacionesIndependientes();
 }
 
 
 async function cargarRecomendacionesIndependientes() {
+    const año = document.getElementById('filtro-rec-año').value;
+    const responsableId = document.getElementById('filtro-rec-responsable').value;
     const institucionId = document.getElementById('filtro-rec-institucion').value;
-    const btnNueva = document.getElementById('btn-nueva-recomendacion-independiente');
+    const organoId = document.getElementById('filtro-rec-organo').value; 
     const tbody = document.getElementById('recomendaciones-independientes-tbody');
     
     currentView = 'recomendaciones';
-    btnNueva.disabled = !institucionId;
     
-    if (!institucionId) {
-        tbody.innerHTML = '<tr><td colspan="8">Seleccione una institución para ver sus recomendaciones.</td></tr>';
-        return;
-    }
+    tbody.innerHTML = `<tr><td colspan="11">Cargando...</td></tr>`;
+
+    let url = new URL('http://localhost:5001/api/recomendaciones');
+    if (año) url.searchParams.append('año', año);
+    if (responsableId) url.searchParams.append('responsable_id', responsableId);
+    if (institucionId) url.searchParams.append('institucion_id', institucionId);
+    if (organoId) url.searchParams.append('organo_id', organoId);
     
     try {
-        tbody.innerHTML = '<tr><td colspan="8">Cargando...</td></tr>';
-        const recomendaciones = await fetchAPI(`http://localhost:5001/api/recomendaciones?institucion_id=${institucionId}`);
+        const recomendaciones = await fetchAPI(url);
         renderRecomendaciones(recomendaciones, 'recomendaciones-independientes-tbody');
     } catch (error) {
         console.error("Error al cargar recomendaciones independientes:", error);
-        tbody.innerHTML = '<tr><td colspan="8">Error al cargar datos.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11">Error al cargar datos.</td></tr>';
     }
 }
-

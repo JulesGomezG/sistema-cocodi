@@ -9,7 +9,9 @@ services:
       - POSTGRES_PASSWORD=supersecretpassword
       - POSTGRES_DB=cocodi_db
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      # ### CAMBIO: Usar un "named volume" en lugar de una carpeta local (bind mount).
+      # Esto es más robusto y evita problemas de permisos.
+      - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
@@ -33,5 +35,6 @@ services:
       db:
         condition: service_healthy
 
+# Se declara el "named volume" que será gestionado por Docker.
 volumes:
   postgres_data:

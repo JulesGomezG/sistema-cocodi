@@ -13,15 +13,15 @@
             --color-gob-vino-oscuro: #611232; /* PANTONE 7421 C */
             --color-gob-vino-claro: #9b2247;  /* PANTONE 7420 C */
             --color-gob-verde: #1e5b4f;       /* PANTONE 626 C */
-            --color-gob-dorado: #a57f2c;     /* PANTONE 1255 C */
+            --color-gob-dorado: #a57f2c;      /* PANTONE 1255 C */
             --color-gob-gris: #333333;
             --color-gob-fondo: #f4f7f9;
             --color-danger: #dc3545;
         }
 
-        body { 
-            font-family: 'Montserrat', sans-serif; 
-            margin: 0; 
+        body {  
+            font-family: 'Montserrat', sans-serif;  
+            margin: 0;  
             background-color: var(--color-gob-fondo);
         }
         
@@ -53,21 +53,20 @@
             font-weight: 400;
         }
 
-        /* ### CAMBIO: Color de fondo del menú de navegación ### */
-        .main-nav { 
-            background-color: var(--color-gob-vino-oscuro); 
-            padding: 0.5em; 
-            text-align: center; 
+        .main-nav {  
+            background-color: var(--color-gob-vino-oscuro);  
+            padding: 0.5em;  
+            text-align: center;  
         }
-        .main-nav a { 
-            color: white; 
-            text-decoration: none; 
-            padding: 0.8em 1.2em; 
-            font-weight: bold; 
+        .main-nav a {  
+            color: white;  
+            text-decoration: none;  
+            padding: 0.8em 1.2em;  
+            font-weight: bold;  
             display: inline-block;
         }
-        .main-nav a.active, .main-nav a:hover { 
-            background-color: var(--color-gob-vino-claro); 
+        .main-nav a.active, .main-nav a:hover {  
+            background-color: var(--color-gob-vino-claro);  
         }
 
         .container { background-color: #fff; padding: 2em; margin: 2em; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
@@ -92,7 +91,15 @@
         th { background-color: #f8f9fa; font-weight: bold; }
         
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
-        .modal-content { background-color: #fefefe; padding: 20px; width: 80%; max-width: 600px; border-radius: 8px; }
+        .modal-content { 
+            background-color: #fefefe; 
+            padding: 20px; 
+            width: 80%; 
+            max-width: 600px; 
+            border-radius: 8px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
         .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 20px; }
         .modal-header h2 { margin: 0; }
         .modal-form div { margin-bottom: 15px; }
@@ -100,12 +107,13 @@
         .modal-form input, .modal-form textarea, .modal-form select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
         .close-btn { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
         
-        .detalle-sesion-info p { margin: 8px 0; font-size: 16px; }
-        .detalle-sesion-info strong { color: var(--color-gob-gris); }
-        .detalle-sesion-info ul { padding-left: 20px; }
+        .detalle-info p { margin: 8px 0; font-size: 16px; line-height: 1.6; }
+        .detalle-info strong { color: var(--color-gob-gris); }
+        .detalle-info ul { padding-left: 20px; }
         .modal-footer {
             display: flex;
             justify-content: flex-end;
+            gap: 10px;
             margin-top: 20px;
             padding-top: 10px;
             border-top: 1px solid #ccc;
@@ -135,7 +143,7 @@
         .estatus-Programada { background-color: var(--color-gob-dorado); }
         .estatus-Realizada { background-color: var(--color-gob-verde); }
         
-        .actions-cell { display: flex; gap: 5px; }
+        .actions-cell { display: flex; gap: 5px; flex-wrap: wrap; }
 
         #notification-container {
             position: fixed;
@@ -173,7 +181,6 @@
 </head>
 <body>
     <header class="main-header">
-        <!-- ### CAMBIO: Ruta del logo a una local ### -->
         <img src="assets/logo.jpg" alt="Logo Secretaría Anticorrupción y Buen Gobierno">
         <div class="header-titles">
             <h1>Secretaría Anticorrupción y Buen Gobierno</h1>
@@ -194,10 +201,10 @@
     <section id="section-sesiones" class="app-section">
         <div class="container">
             <div class="header">
-                 <h1>Seguimiento de Sesiones</h1>
+                  <h1>Seguimiento de Sesiones</h1>
             </div>
             <div class="filtros">
-                <div><label for="filtro-año">Año:</label><input type="number" id="filtro-año" value="2025"></div>
+                <div><label for="filtro-año">Año:</label><select id="filtro-año"></select></div>
                 <div><label for="filtro-responsable">Responsable:</label><select id="filtro-responsable" required><option value="">Seleccione...</option></select></div>
                 <div><label for="filtro-institucion">Institución:</label><select id="filtro-institucion" required disabled><option value="">Seleccione...</option></select></div>
                 <div><label for="filtro-organo">Órgano Colegiado:</label><select id="filtro-organo" required disabled><option value="">Seleccione...</option></select></div>
@@ -220,9 +227,11 @@
                 <div class="filtros">
                     <div><label for="filtro-informe-periodo">Periodo:</label><select id="filtro-informe-periodo"></select></div>
                     <div><label for="filtro-informe-responsable">Responsable:</label><select id="filtro-informe-responsable"></select></div>
+                    <div><label for="filtro-informe-institucion">Institución:</label><select id="filtro-informe-institucion" disabled></select></div>
+                    <div><label for="filtro-informe-organo">Órgano Colegiado:</label><select id="filtro-informe-organo" disabled></select></div>
                 </div>
                 <table id="informes-table">
-                    <thead><tr><th>Institución</th><th>Tipo de Informe</th><th>Periodo</th><th>Fecha</th><th>Responsable</th><th>Recomendaciones</th><th>Acciones</th></tr></thead>
+                    <thead><tr><th>Institución</th><th>Órgano Colegiado</th><th>Descripción</th><th>Tipo de Informe</th><th>Periodo</th><th>Fecha Emisión</th><th>Responsable</th><th>Estado Recomendaciones</th><th>Acciones</th></tr></thead>
                     <tbody id="informes-tbody"></tbody>
                 </table>
             </div>
@@ -238,7 +247,7 @@
                     <button id="btn-nueva-recomendacion-informe" class="btn-primary">Añadir Recomendación</button>
                 </div>
                 <table id="recomendaciones-informe-table">
-                    <thead><tr><th>Descripción</th><th>Área</th><th>Compromiso</th><th>Estatus</th><th>Prioridad</th><th>Evidencias</th><th>Acciones</th></tr></thead>
+                    <thead><tr><th>Descripción</th><th>Área</th><th>Órgano Colegiado</th><th>Fecha Emisión</th><th>Fecha Compromiso</th><th>Estatus</th><th>Prioridad</th><th>Evidencias</th><th>Acciones</th></tr></thead>
                     <tbody id="recomendaciones-informe-tbody"></tbody>
                 </table>
             </div>
@@ -249,14 +258,17 @@
         <div class="container">
             <div class="header">
                 <h1>Gestión de Recomendaciones</h1>
-                <button id="btn-nueva-recomendacion-independiente" class="btn-primary" disabled>Crear Recomendación</button>
+                <!-- AJUSTE: Botón ahora es igual al de informes -->
+                <button id="btn-nueva-recomendacion-independiente" class="btn-primary">Crear Recomendación</button>
             </div>
             <div class="filtros">
+                <div><label for="filtro-rec-año">Año:</label><select id="filtro-rec-año"></select></div>
                 <div><label for="filtro-rec-responsable">Responsable:</label><select id="filtro-rec-responsable"></select></div>
                 <div><label for="filtro-rec-institucion">Institución:</label><select id="filtro-rec-institucion" disabled></select></div>
+                <div><label for="filtro-rec-organo">Órgano Colegiado:</label><select id="filtro-rec-organo" disabled></select></div>
             </div>
             <table id="recomendaciones-independientes-table">
-                <thead><tr><th>Descripción</th><th>Área</th><th>Compromiso</th><th>Estatus</th><th>Prioridad</th><th>Informe Asociado</th><th>Evidencias</th><th>Acciones</th></tr></thead>
+                <thead><tr><th>Institución</th><th>Órgano Colegiado</th><th>Descripción</th><th>Área</th><th>Fecha Emisión</th><th>Fecha Compromiso</th><th>Estatus</th><th>Prioridad</th><th>Informe Asociado</th><th>Evidencias</th><th>Acciones</th></tr></thead>
                 <tbody id="recomendaciones-independientes-tbody"></tbody>
             </table>
         </div>
@@ -290,12 +302,8 @@
                 <h2 id="sesion-detalle-title">Detalles de la Sesión</h2>
                 <span class="close-btn">&times;</span>
             </div>
-            <div id="sesion-detalle-body" class="detalle-sesion-info">
-                <!-- El contenido se generará dinámicamente -->
-            </div>
-            <div class="modal-footer" id="sesion-detalle-footer">
-                <!-- El botón de editar se generará dinámicamente -->
-            </div>
+            <div id="sesion-detalle-body" class="detalle-info"></div>
+            <div class="modal-footer" id="sesion-detalle-footer"></div>
         </div>
     </div>
 
@@ -308,9 +316,11 @@
             <form id="informe-form" class="modal-form">
                 <input type="hidden" id="id_informe_hidden_form" name="id_informe">
                 <div><label>Periodo:</label><select id="periodo-select" name="periodo" required></select></div>
-                <div><label>Responsable:</label><select id="responsable-select" name="id_responsable" required></select></div>
-                <div><label>Institución:</label><select id="institucion-select" name="id_institucion" required disabled></select></div>
+                <div><label>Responsable:</label><select id="responsable-select-informe" name="id_responsable" required></select></div>
+                <div><label>Institución:</label><select id="institucion-select-informe" name="id_institucion" required disabled></select></div>
+                <div><label>Órgano Colegiado:</label><select id="organo-select-informe" name="id_organo_colegiado" required disabled></select></div>
                 <div><label>Tipo de Informe:</label><select name="tipo_informe" required><option value="">Seleccione...</option><option>Informe de Autoevaluación</option><option>Informe de Estados Financieros</option><option>RAAD</option></select></div>
+                <div><label for="informe-descripcion">Descripción (Opcional):</label><textarea id="informe-descripcion" name="descripcion" rows="3"></textarea></div>
                 <div><label>Fecha de Emisión:</label><input type="date" name="fecha_informe" required></div>
                 <div><label>Documento Soporte (Opcional):</label><input type="file" name="soporte_file"></div>
                 <button type="submit" class="btn-primary" disabled>Guardar</button>
@@ -326,33 +336,55 @@
             <form id="recomendacion-form" class="modal-form">
                 <input type="hidden" id="id_recomendacion_hidden" name="id_recomendacion">
                 <input type="hidden" id="id_informe_hidden_rec" name="id_informe">
+                
+                <!-- AJUSTE: Contenedor para los campos de creación independiente -->
+                <div id="rec-independent-fields">
+                    <div><label>Responsable:</label><select id="rec-responsable-select" name="id_responsable" required></select></div>
+                    <div><label>Institución:</label><select id="rec-institucion-select" name="id_institucion" required disabled></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="rec-organo-select" name="id_organo_colegiado" required disabled></select></div>
+                </div>
+
                 <input type="hidden" id="id_institucion_hidden_rec" name="id_institucion">
+                <input type="hidden" id="id_organo_colegiado_hidden_rec" name="id_organo_colegiado">
+                
                 <div><label>Descripción:</label><textarea name="descripcion" required rows="3"></textarea></div>
                 <div><label>Área Responsable:</label><input type="text" name="area_responsable_atencion" required></div>
+                <div><label>Fecha de Emisión:</label><input type="date" name="fecha_emision" required></div>
                 <div><label>Fecha Compromiso:</label><input type="date" name="fecha_compromiso"></div>
                 <div><label>Estatus:</label><select name="estatus"><option>Pendiente</option><option>En Proceso</option><option>Completada</option><option>Cerrada</option><option>Cancelada</option></select></div>
                 <div><label>Prioridad:</label><select name="prioridad"><option>Media</option><option>Alta</option><option>Baja</option></select></div>
                 <div><label>Tipo:</label><select name="tipo_recomendacion"><option>Correctiva</option><option>Preventiva</option><option>De Mejora Continua</option></select></div>
+                <hr>
+                <h3>Evidencias</h3>
+                <ul id="recomendacion-evidencia-list"><li>No hay evidencias.</li></ul>
+                <div><label>Cargar Nueva Evidencia (Opcional):</label><input type="file" name="evidencia_file"></div>
                 <button type="submit" class="btn-primary" disabled>Guardar</button>
             </form>
         </div>
     </div>
-    <div id="evidencia-modal" class="modal">
+
+    <div id="recomendacion-detalle-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Gestionar Evidencias</h2>
+                <h2 id="recomendacion-detalle-title">Detalle de la Recomendación</h2>
                 <span class="close-btn">&times;</span>
             </div>
-            <h3>Evidencias Cargadas</h3>
-            <ul id="evidencia-list"><li>No hay evidencias.</li></ul>
-            <hr>
-            <h3>Cargar Nueva Evidencia</h3>
-            <form id="evidencia-form" class="modal-form">
-                <input type="hidden" id="id_parent_hidden" name="parent_id">
-                <input type="hidden" id="parent_type_hidden" name="parent_type">
-                <div><label>Archivo:</label><input type="file" name="file" required></div>
-                <button type="submit" class="btn-primary" disabled>Subir Archivo</button>
-            </form>
+            <div id="recomendacion-detalle-body" class="detalle-info"></div>
+            <div class="modal-footer" id="recomendacion-detalle-footer"></div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="confirm-title">Confirmar Acción</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <p id="confirm-body" style="font-size: 1.1em; margin: 20px 0;">¿Estás seguro de que deseas realizar esta acción?</p>
+            <div class="modal-footer">
+                <button id="confirm-cancel-btn" class="btn-secondary">Cancelar</button>
+                <button id="confirm-ok-btn" class="btn-danger">Confirmar</button>
+            </div>
         </div>
     </div>
 

@@ -14,7 +14,8 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def get_db_connection():
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    # Asegúrate de que la variable de entorno DATABASE_URL esté configurada
+    conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
     return conn
 
 # =============================================================
@@ -120,23 +121,20 @@ def obtener_o_crear_calendario():
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     
     query = """
-        SELECT 
-            cs.*,
-            es.id_ejecucion,
-            es.numero_sesion_oficial,
-            es.fecha_real,
-            es.responsable AS responsable_ejecucion
+        SELECT cs.*, es.id_ejecucion, es.numero_sesion_oficial, es.fecha_real, es.responsable as responsable_ejecucion
         FROM Calendario_Sesiones cs
-        LEFT JOIN Ejecucion_Sesiones es ON cs.id_calendario = es.id_calendario AND es.activo = TRUE
-        WHERE cs.año = %s AND cs.id_institucion = %s AND cs.id_organo_colegiado = %s AND cs.activo = TRUE
+        LEFT JOIN Ejecucion_Sesiones es ON cs.id_calendario = es.id_calendario
+        WHERE cs.año = %s AND cs.id_institucion = %s AND cs.id_organo_colegiado = %s
         ORDER BY cs.tipo_sesion DESC, cs.numero_ordinal ASC;
     """
     cur.execute(query, (año, institucion_id, organo_id))
     sesiones_existentes = cur.fetchall()
 
     if not any(s['tipo_sesion'] == 'Ordinaria' for s in sesiones_existentes):
-        query_insert = "INSERT INTO Calendario_Sesiones (año, id_institucion, id_organo_colegiado, tipo_sesion, numero_ordinal) VALUES (%s, %s, %s, 'Ordinaria', %s);"
-        for i in range(1, 5): cur.execute(query_insert, (año, institucion_id, organo_id, i))
+        with conn.cursor() as cur_insert:
+            query_insert = "INSERT INTO Calendario_Sesiones (año, id_institucion, id_organo_colegiado, tipo_sesion, numero_ordinal) VALUES (%s, %s, %s, 'Ordinaria', %s);"
+            for i in range(1, 5):
+                cur_insert.execute(query_insert, (año, institucion_id, organo_id, i))
         conn.commit()
         cur.execute(query, (año, institucion_id, organo_id))
         sesiones_existentes = cur.fetchall()
@@ -160,15 +158,14 @@ def registrar_ejecucion():
     cur.close()
     conn.close()
     return jsonify({"message": "Ejecución registrada.", "id_ejecucion": new_id}), 201
-
-# ### CAMBIO: Nuevo endpoint para editar una ejecución ###
+    
 @app.route('/api/ejecucion-sesiones/<int:ejecucion_id>', methods=['PUT'])
 def actualizar_ejecucion(ejecucion_id):
     data = request.form.to_dict()
     conn = get_db_connection()
     cur = conn.cursor()
-    sql_update = "UPDATE Ejecucion_Sesiones SET numero_sesion_oficial = %s, fecha_real = %s, responsable = %s WHERE id_ejecucion = %s;"
-    cur.execute(sql_update, (data['numero_sesion_oficial'], data['fecha_real'], data['responsable'], ejecucion_id))
+    sql = "UPDATE Ejecucion_Sesiones SET numero_sesion_oficial = %s, fecha_real = %s, responsable = %s WHERE id_ejecucion = %s;"
+    cur.execute(sql, (data['numero_sesion_oficial'], data['fecha_real'], data['responsable'], ejecucion_id))
     conn.commit()
     cur.close()
     conn.close()
@@ -198,22 +195,36 @@ def registrar_sesion_extraordinaria():
 def manejar_informes():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    
     if request.method == 'GET':
         periodo = request.args.get('periodo')
         responsable_id = request.args.get('responsable_id', type=int)
+        institucion_id = request.args.get('institucion_id', type=int)
+        organo_id = request.args.get('organo_id', type=int)
         
         sql = """
+            WITH RecCounts AS (
+                SELECT
+                    id_informe,
+                    COUNT(id_recomendacion) AS recomendaciones_emitidas,
+                    COUNT(CASE WHEN estatus IN ('Cerrada', 'Completada') THEN 1 END) AS recomendaciones_atendidas
+                FROM Recomendaciones
+                WHERE activo = TRUE AND id_informe IS NOT NULL
+                GROUP BY id_informe
+            )
             SELECT 
                 inf.*, 
                 ins.nombre_institucion, 
                 ins.siglas, 
                 res.nombre_responsable,
-                COUNT(rec.id_recomendacion) AS total_recomendaciones,
-                COUNT(CASE WHEN rec.estatus = 'Cerrada' THEN 1 END) AS atendidas_recomendaciones
+                org.nombre_organo,
+                COALESCE(rc.recomendaciones_emitidas, 0) AS recomendaciones_emitidas,
+                COALESCE(rc.recomendaciones_atendidas, 0) AS recomendaciones_atendidas
             FROM Informes_de_Seguimiento AS inf
             JOIN Instituciones AS ins ON inf.id_institucion = ins.id_institucion
             JOIN Responsables AS res ON inf.id_responsable = res.id_responsable
-            LEFT JOIN Recomendaciones AS rec ON inf.id_informe = rec.id_informe AND rec.activo = TRUE
+            JOIN Catalogo_Organos_Colegiados AS org ON inf.id_organo_colegiado = org.id_organo_colegiado
+            LEFT JOIN RecCounts rc ON inf.id_informe = rc.id_informe
             WHERE inf.activo = TRUE
         """
         params = []
@@ -223,7 +234,14 @@ def manejar_informes():
         if responsable_id:
             sql += " AND inf.id_responsable = %s"
             params.append(responsable_id)
-        sql += " GROUP BY inf.id_informe, ins.id_institucion, res.id_responsable ORDER BY inf.fecha_informe DESC;"
+        if institucion_id:
+            sql += " AND inf.id_institucion = %s"
+            params.append(institucion_id)
+        if organo_id:
+            sql += " AND inf.id_organo_colegiado = %s"
+            params.append(organo_id)
+            
+        sql += " ORDER BY inf.fecha_informe DESC;"
 
         cur.execute(sql, tuple(params))
         informes = [dict(row) for row in cur.fetchall()]
@@ -233,13 +251,34 @@ def manejar_informes():
     
     if request.method == 'POST':
         data = request.form.to_dict()
-        sql = "INSERT INTO Informes_de_Seguimiento (id_institucion, id_responsable, tipo_informe, periodo, fecha_informe) VALUES (%s, %s, %s, %s, %s) RETURNING id_informe;"
-        cur.execute(sql, (data['id_institucion'], data['id_responsable'], data['tipo_informe'], data['periodo'], data['fecha_informe']))
-        new_id = cur.fetchone()['id_informe']
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"message": "Informe creado.", "id_informe": new_id}), 201
+        descripcion = data.get('descripcion') or None
+
+        required_fields = ['id_institucion', 'id_responsable', 'id_organo_colegiado', 'tipo_informe', 'periodo', 'fecha_informe']
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            return jsonify({"error": f"Faltan datos obligatorios: {', '.join(missing_fields)}"}), 400
+
+        try:
+            sql = """
+                INSERT INTO Informes_de_Seguimiento 
+                (id_institucion, id_responsable, id_organo_colegiado, tipo_informe, periodo, fecha_informe, descripcion) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id_informe;
+            """
+            cur.execute(sql, (
+                data['id_institucion'], data['id_responsable'], data['id_organo_colegiado'],
+                data['tipo_informe'], data['periodo'], data['fecha_informe'], descripcion
+            ))
+            new_id = cur.fetchone()['id_informe']
+            conn.commit()
+            return jsonify({"message": "Informe creado.", "id_informe": new_id}), 201
+        
+        except psycopg2.Error as e:
+            conn.rollback() 
+            return jsonify({"error": f"Error en la base de datos: {e}"}), 500
+        finally:
+            cur.close()
+            conn.close()
+
 
 @app.route('/api/informes/<int:informe_id>', methods=['GET', 'PUT', 'DELETE'])
 def manejar_informe_detalle(informe_id):
@@ -247,7 +286,14 @@ def manejar_informe_detalle(informe_id):
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     
     if request.method == 'GET':
-        sql = "SELECT inf.*, ins.nombre_institucion, res.nombre_responsable FROM Informes_de_Seguimiento AS inf JOIN Instituciones AS ins ON inf.id_institucion = ins.id_institucion JOIN Responsables AS res ON inf.id_responsable = res.id_responsable WHERE inf.id_informe = %s;"
+        sql = """
+            SELECT inf.*, ins.nombre_institucion, res.nombre_responsable, org.nombre_organo 
+            FROM Informes_de_Seguimiento AS inf 
+            JOIN Instituciones AS ins ON inf.id_institucion = ins.id_institucion 
+            JOIN Responsables AS res ON inf.id_responsable = res.id_responsable
+            JOIN Catalogo_Organos_Colegiados as org ON inf.id_organo_colegiado = org.id_organo_colegiado
+            WHERE inf.id_informe = %s;
+        """
         cur.execute(sql, (informe_id,))
         informe = cur.fetchone()
         cur.close()
@@ -256,8 +302,13 @@ def manejar_informe_detalle(informe_id):
         
     if request.method == 'PUT':
         data = request.form.to_dict()
-        sql = "UPDATE Informes_de_Seguimiento SET tipo_informe = %s, periodo = %s, fecha_informe = %s WHERE id_informe = %s;"
-        cur.execute(sql, (data['tipo_informe'], data['periodo'], data['fecha_informe'], informe_id))
+        descripcion = data.get('descripcion') or None
+        sql = """
+            UPDATE Informes_de_Seguimiento 
+            SET tipo_informe = %s, periodo = %s, fecha_informe = %s, id_organo_colegiado = %s, descripcion = %s
+            WHERE id_informe = %s;
+        """
+        cur.execute(sql, (data['tipo_informe'], data['periodo'], data['fecha_informe'], data['id_organo_colegiado'], descripcion, informe_id))
         conn.commit()
         cur.close()
         conn.close()
@@ -275,27 +326,52 @@ def manejar_recomendaciones():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     if request.method == 'GET':
+        # CORRECCIÓN: Volver a leer informe_id
         informe_id = request.args.get('informe_id', type=int)
+        año = request.args.get('año')
+        responsable_id = request.args.get('responsable_id', type=int)
         institucion_id = request.args.get('institucion_id', type=int)
-        
-        if not informe_id and not institucion_id:
-            return jsonify({"error": "Se requiere id_informe o id_institucion"}), 400
+        organo_id = request.args.get('organo_id', type=int)
         
         sql = """
-            SELECT r.*, COUNT(e.id_evidencia) AS evidencias_count
+            SELECT 
+                r.*, 
+                i.siglas,
+                org.nombre_organo,
+                (SELECT COUNT(*) 
+                 FROM Evidencias e 
+                 WHERE e.parent_id = r.id_recomendacion 
+                   AND e.parent_type = 'recomendacion' 
+                   AND e.activo = TRUE) AS evidencias_count
             FROM Recomendaciones r
-            LEFT JOIN Evidencias e ON r.id_recomendacion = e.parent_id AND e.parent_type = 'recomendacion' AND e.activo = TRUE
+            JOIN Instituciones i ON r.id_institucion = i.id_institucion
+            JOIN Catalogo_Organos_Colegiados org ON r.id_organo_colegiado = org.id_organo_colegiado
             WHERE r.activo = TRUE
         """
         params = []
+        
+        # CORRECCIÓN: Lógica de filtrado condicional
         if informe_id:
+            # Si se busca por informe, es el único filtro que importa
             sql += " AND r.id_informe = %s"
             params.append(informe_id)
-        if institucion_id:
-            sql += " AND r.id_institucion = %s"
-            params.append(institucion_id)
+        else:
+            # Si no, se aplican los filtros de la sección principal
+            if año:
+                sql += " AND EXTRACT(YEAR FROM r.fecha_emision) = %s"
+                params.append(año)
+            if responsable_id:
+                sql += " AND i.id_responsable = %s"
+                params.append(responsable_id)
+            if institucion_id:
+                sql += " AND r.id_institucion = %s"
+                params.append(institucion_id)
+            if organo_id:
+                sql += " AND r.id_organo_colegiado = %s"
+                params.append(organo_id)
         
-        sql += " GROUP BY r.id_recomendacion ORDER BY r.fecha_creacion DESC;"
+        sql += " ORDER BY r.fecha_creacion DESC;"
+        
         cur.execute(sql, tuple(params))
         recomendaciones = [dict(row) for row in cur.fetchall()]
         cur.close()
@@ -304,23 +380,36 @@ def manejar_recomendaciones():
         
     if request.method == 'POST':
         data = request.form.to_dict()
-        id_informe = data.get('id_informe') or None
+        id_informe = data.get('id_informe')
         id_institucion = data.get('id_institucion')
+        id_organo_colegiado = data.get('id_organo_colegiado')
         
         if not id_institucion and id_informe:
-            cur.execute("SELECT id_institucion FROM Informes_de_Seguimiento WHERE id_informe = %s", (id_informe,))
+            cur.execute("SELECT id_institucion, id_organo_colegiado FROM Informes_de_Seguimiento WHERE id_informe = %s;", (id_informe,))
             result = cur.fetchone()
-            if result: id_institucion = result['id_institucion']
+            if result:
+                id_institucion = result['id_institucion']
+                id_organo_colegiado = result['id_organo_colegiado']
         
-        if not id_institucion:
-            return jsonify({"error": "id_institucion es requerido"}), 400
+        if not id_institucion or not id_organo_colegiado:
+            return jsonify({"error": "Falta id_institucion/id_organo_colegiado o un id_informe válido"}), 400
 
-        sql = """
-            INSERT INTO Recomendaciones (id_informe, id_institucion, descripcion, area_responsable_atencion, fecha_compromiso, estatus, prioridad, tipo_recomendacion) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_recomendacion;
-        """
-        params = (id_informe, id_institucion, data['descripcion'], data['area_responsable_atencion'], data.get('fecha_compromiso') or None, data['estatus'], data['prioridad'], data['tipo_recomendacion'])
-        cur.execute(sql, params)
+        id_informe_db = id_informe if id_informe else None
+        
+        sql = """INSERT INTO Recomendaciones (id_informe, id_institucion, id_organo_colegiado, descripcion, area_responsable_atencion, fecha_emision, fecha_compromiso, estatus, prioridad, tipo_recomendacion) 
+                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_recomendacion;"""
+        cur.execute(sql, (
+            id_informe_db, 
+            id_institucion, 
+            id_organo_colegiado,
+            data['descripcion'], 
+            data['area_responsable_atencion'], 
+            data['fecha_emision'],
+            data.get('fecha_compromiso') or None, 
+            data['estatus'], 
+            data['prioridad'], 
+            data['tipo_recomendacion']
+        ))
         new_id = cur.fetchone()['id_recomendacion']
         conn.commit()
         cur.close()
@@ -333,8 +422,21 @@ def manejar_recomendacion_detalle(rec_id):
     cur = conn.cursor()
     if request.method == 'PUT':
         data = request.form.to_dict()
-        sql = "UPDATE Recomendaciones SET descripcion = %s, area_responsable_atencion = %s, fecha_compromiso = %s, estatus = %s, prioridad = %s, tipo_recomendacion = %s WHERE id_recomendacion = %s;"
-        cur.execute(sql, (data['descripcion'], data['area_responsable_atencion'], data.get('fecha_compromiso') or None, data['estatus'], data['prioridad'], data['tipo_recomendacion'], rec_id))
+        sql = """UPDATE Recomendaciones 
+                 SET descripcion = %s, area_responsable_atencion = %s, fecha_emision = %s, fecha_compromiso = %s, 
+                     estatus = %s, prioridad = %s, tipo_recomendacion = %s, id_organo_colegiado = %s
+                 WHERE id_recomendacion = %s;"""
+        cur.execute(sql, (
+            data['descripcion'], 
+            data['area_responsable_atencion'], 
+            data['fecha_emision'],
+            data.get('fecha_compromiso') or None, 
+            data['estatus'], 
+            data['prioridad'], 
+            data['tipo_recomendacion'], 
+            data['id_organo_colegiado'],
+            rec_id
+        ))
         conn.commit()
         cur.close()
         conn.close()
@@ -348,5 +450,4 @@ def manejar_recomendacion_detalle(rec_id):
         return jsonify({"message": "Recomendación eliminada."})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-
+    app.run(host='0.0.0.0', port=5001, debug=True)
