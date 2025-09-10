@@ -120,8 +120,130 @@ def obtener_organos_filtrados():
     conn.close()
     return jsonify(organos)
 
+# =============================================================
+# ENDPOINTS PARA DIRECTORIO
+# =============================================================
+@app.route('/api/directorio', methods=['GET'])
+def obtener_contactos():
+    institucion_id = request.args.get('institucion_id', type=int)
+    organo_id_str = request.args.get('organo_id') 
+
+    if not institucion_id:
+        return jsonify({"error": "Se requiere institucion_id"}), 400
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    
+    if organo_id_str is not None:
+        if organo_id_str == '0': 
+            sql = "SELECT * FROM Directorio_Contactos WHERE id_institucion = %s AND id_organo_colegiado IS NULL AND activo = TRUE ORDER BY nombre_contacto;"
+            params = (institucion_id,)
+        else:
+            sql = "SELECT * FROM Directorio_Contactos WHERE id_institucion = %s AND id_organo_colegiado = %s AND activo = TRUE ORDER BY nombre_contacto;"
+            params = (institucion_id, int(organo_id_str))
+    else:
+        sql = "SELECT * FROM Directorio_Contactos WHERE id_institucion = %s AND activo = TRUE ORDER BY nombre_contacto;"
+        params = (institucion_id,)
+        
+    cur.execute(sql, params)
+    contactos = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return jsonify(contactos)
+
+@app.route('/api/directorio', methods=['POST'])
+def crear_contacto():
+    data = request.form.to_dict()
+    required_fields = ['id_institucion', 'nombre_contacto']
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Faltan campos requeridos"}), 400
+
+    organo_id = data.get('id_organo_colegiado')
+    if not organo_id or organo_id == '0':
+        organo_id = None
+
+    # Asegurarse de que los IDs son enteros
+    try:
+        id_institucion_int = int(data['id_institucion'])
+        # Corrección para manejar organo_id None antes de convertir a int
+        organo_id_int = int(organo_id) if organo_id is not None else None
+    except (ValueError, TypeError):
+        return jsonify({"error": "El ID de institución u órgano no es un número válido"}), 400
+
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        sql = """
+            INSERT INTO Directorio_Contactos (id_institucion, id_organo_colegiado, nombre_contacto, telefono, extension, email, movil, direccion)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_contacto;
+        """
+        cur.execute(sql, (
+            id_institucion_int, 
+            organo_id_int, 
+            data['nombre_contacto'],
+            data.get('telefono'), 
+            data.get('extension'), 
+            data.get('email'), 
+            data.get('movil'), 
+            data.get('direccion')
+        ))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        return jsonify({"message": "Contacto creado.", "id_contacto": new_id}), 201
+
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback() 
+        # Este mensaje ahora aparecerá en el frontend, dándote la pista exacta
+        return jsonify({"error": f"Error en la base de datos: {e.pgerror}"}), 500
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+@app.route('/api/directorio/<int:contacto_id>', methods=['PUT'])
+def actualizar_contacto(contacto_id):
+    data = request.form.to_dict()
+    organo_id = data.get('id_organo_colegiado')
+    if organo_id == '0':
+        organo_id = None
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    sql = """
+        UPDATE Directorio_Contactos
+        SET nombre_contacto = %s, telefono = %s, extension = %s, email = %s, movil = %s, direccion = %s, id_organo_colegiado = %s
+        WHERE id_contacto = %s;
+    """
+    cur.execute(sql, (
+        data.get('nombre_contacto'), data.get('telefono'), data.get('extension'), data.get('email'), 
+        data.get('movil'), data.get('direccion'), organo_id, contacto_id
+    ))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"message": "Contacto actualizado."})
+
+@app.route('/api/directorio/<int:contacto_id>', methods=['DELETE'])
+def eliminar_contacto(contacto_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE Directorio_Contactos SET activo = FALSE WHERE id_contacto = %s;", (contacto_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"message": "Contacto eliminado."})
+
+# =============================================================
+# ENDPOINTS DE SESIONES (SIN CAMBIOS)
+# =============================================================
 @app.route('/api/calendario-sesiones', methods=['GET'])
 def obtener_o_crear_calendario():
+    # ... (código sin cambios)
     año = request.args.get('año', type=int)
     institucion_id = request.args.get('institucion_id', type=int)
     organo_id = request.args.get('organo_id', type=int)
@@ -155,6 +277,7 @@ def obtener_o_crear_calendario():
 
 @app.route('/api/ejecucion-sesiones', methods=['POST'])
 def registrar_ejecucion():
+    # ... (código sin cambios)
     data = request.form.to_dict()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -170,6 +293,7 @@ def registrar_ejecucion():
     
 @app.route('/api/ejecucion-sesiones/<int:ejecucion_id>', methods=['PUT'])
 def actualizar_ejecucion(ejecucion_id):
+    # ... (código sin cambios)
     data = request.form.to_dict()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -183,6 +307,7 @@ def actualizar_ejecucion(ejecucion_id):
 
 @app.route('/api/sesiones-extraordinarias', methods=['POST'])
 def registrar_sesion_extraordinaria():
+    # ... (código sin cambios)
     data = request.form.to_dict()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -198,10 +323,11 @@ def registrar_sesion_extraordinaria():
     return jsonify({"message": "Extraordinaria registrada.", "id_ejecucion": new_id}), 201
 
 # =============================================================
-# ENDPOINTS DE INFORMES Y RECOMENDACIONES
+# ENDPOINTS DE INFORMES Y RECOMENDACIONES (SIN CAMBIOS)
 # =============================================================
 @app.route('/api/informes', methods=['GET', 'POST'])
 def manejar_informes():
+    # ... (código sin cambios)
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     
@@ -291,6 +417,7 @@ def manejar_informes():
 
 @app.route('/api/informes/<int:informe_id>', methods=['GET', 'PUT', 'DELETE'])
 def manejar_informe_detalle(informe_id):
+    # ... (código sin cambios)
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     
@@ -332,6 +459,7 @@ def manejar_informe_detalle(informe_id):
 
 @app.route('/api/recomendaciones', methods=['GET', 'POST'])
 def manejar_recomendaciones():
+    # ... (código sin cambios)
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     if request.method == 'GET':
@@ -341,7 +469,6 @@ def manejar_recomendaciones():
         institucion_id = request.args.get('institucion_id', type=int)
         organo_id = request.args.get('organo_id', type=int)
         
-        # CORRECCIÓN: Se añade i.id_responsable para asegurar que el frontend tenga los datos para editar.
         sql = """
             SELECT 
                 r.*, 
@@ -425,6 +552,7 @@ def manejar_recomendaciones():
 
 @app.route('/api/recomendaciones/<int:rec_id>', methods=['PUT', 'DELETE'])
 def manejar_recomendacion_detalle(rec_id):
+    # ... (código sin cambios)
     conn = get_db_connection()
     cur = conn.cursor()
     if request.method == 'PUT':

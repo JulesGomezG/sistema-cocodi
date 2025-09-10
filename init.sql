@@ -1,11 +1,11 @@
 -- =================================================================
--- Script Definitivo - Modelo v15.11 (Campo Descripción en Informes)
+-- Script Definitivo - Modelo v16.2 (Mejoras en Directorio)
 -- =================================================================
 
 -- -----------------------------------------------------
 -- Creación de Tablas
 -- -----------------------------------------------------
-DROP TABLE IF EXISTS Evidencias, Recomendaciones, Informes_de_Seguimiento, Ejecucion_Sesiones, Calendario_Sesiones, Institucion_Organos, Catalogo_Organos_Colegiados, Instituciones, Responsables CASCADE;
+DROP TABLE IF EXISTS Directorio_Contactos, Evidencias, Recomendaciones, Informes_de_Seguimiento, Ejecucion_Sesiones, Calendario_Sesiones, Institucion_Organos, Catalogo_Organos_Colegiados, Instituciones, Responsables CASCADE;
 
 CREATE TABLE IF NOT EXISTS Responsables (
   id_responsable SERIAL PRIMARY KEY,
@@ -33,6 +33,21 @@ CREATE TABLE IF NOT EXISTS Institucion_Organos (
   CONSTRAINT fk_vinculo_organo FOREIGN KEY (id_organo_colegiado) REFERENCES Catalogo_Organos_Colegiados (id_organo_colegiado) ON DELETE CASCADE
 );
 
+-- AJUSTE: Se añade campo 'extension'
+CREATE TABLE IF NOT EXISTS Directorio_Contactos (
+    id_contacto SERIAL PRIMARY KEY,
+    id_institucion INT NOT NULL,
+    id_organo_colegiado INT NULL, 
+    nombre_contacto VARCHAR(255) NOT NULL,
+    telefono VARCHAR(40) NULL,
+    extension VARCHAR(10) NULL,
+    email VARCHAR(255) NULL,
+    movil VARCHAR(50) NULL,
+    direccion TEXT NULL,
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT fk_directorio_institucion FOREIGN KEY (id_institucion) REFERENCES Instituciones (id_institucion) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS Informes_de_Seguimiento (
   id_informe SERIAL PRIMARY KEY,
   id_institucion INT NOT NULL,
@@ -41,7 +56,7 @@ CREATE TABLE IF NOT EXISTS Informes_de_Seguimiento (
   tipo_informe VARCHAR(255) NOT NULL,
   periodo VARCHAR(50) NOT NULL,
   fecha_informe DATE NOT NULL,
-  descripcion TEXT NULL, -- AJUSTE: Se añade el campo descripción
+  descripcion TEXT NULL,
   activo BOOLEAN NOT NULL DEFAULT TRUE,
   CONSTRAINT fk_informe_responsable FOREIGN KEY (id_responsable) REFERENCES Responsables (id_responsable),
   CONSTRAINT fk_informe_institucion_organo FOREIGN KEY (id_institucion, id_organo_colegiado) REFERENCES Institucion_Organos (id_institucion, id_organo_colegiado)
@@ -118,3 +133,4 @@ ON CONFLICT (id_organo_colegiado) DO UPDATE SET nombre_organo = EXCLUDED.nombre_
 INSERT INTO Institucion_Organos (id_institucion, id_organo_colegiado) VALUES
 (1, 2), (2, 2), (3, 1), (3, 2), (4, 1), (4, 4), (4, 8), (5, 2), (6, 2), (7, 1), (7, 4), (8, 2), (9, 5), (10, 6), (11, 1), (12, 1), (12, 6), (13, 1), (13, 2), (14, 1), (14, 7), (15, 1), (16, 7), (17, 1), (18, 2), (19, 8), (20, 1), (21, 4), (21, 9), (22, 1), (22, 4), (23, 1), (23, 2), (24, 1), (25, 10), (26, 11), (27, 11), (28, 1), (29, 11), (30, 1), (30, 6), (31, 9), (32, 9), (33, 9), (34, 1), (35, 9), (36, 9), (37, 1), (38, 1), (39, 12), (40, 1), (41, 1), (42, 6), (43, 2), (44, 13), (45, 13), (46, 2), (47, 1), (48, 2), (49, 2), (50, 1), (50, 13), (51, 2), (52, 6), (53, 15), (54, 2), (55, 4), (55, 9), (56, 1), (56, 6), (57, 1), (58, 1), (59, 1), (60, 2), (61, 2), (62, 13), (63, 1), (64, 9), (65, 1), (66, 9), (67, 1), (68, 14), (69, 1), (70, 7), (71, 2), (72, 2), (73, 2), (74, 1), (74, 4), (74, 9)
 ON CONFLICT (id_institucion, id_organo_colegiado) DO NOTHING;
+

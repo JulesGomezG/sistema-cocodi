@@ -18,6 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sectionId === 'section-recomendaciones-main') {
                 resetRecomendacionesView();
             }
+            if (sectionId === 'section-directorio') {
+                resetDirectorioView();
+            }
         });
     });
 
@@ -29,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSesionesModule();
     initReportesModule();
     initRecomendacionesModule();
+    initDirectorioModule(); 
 });
 
 // =============================================================
@@ -42,7 +46,7 @@ function showNotification(message, type = 'success') {
     container.appendChild(notification);
     setTimeout(() => {
         notification.style.animation = 'fadeOut 0.5s forwards';
-        setTimeout(() => notification.remove(), 500);
+        setTimeout(() => notification.remove(), 5000);
     }, 5000);
 }
 
@@ -141,12 +145,18 @@ async function fetchAPI(url, options = {}) {
 }
 
 
-async function poblarSelectConAPI(url, selectId, valueField, textField, placeholder) {
+async function poblarSelectConAPI(url, selectId, valueField, textField, placeholder, addGeneralOption = false) {
     try {
         const data = await fetchAPI(url);
         const select = document.getElementById(selectId);
         if (!select) return;
         select.innerHTML = `<option value="">${placeholder}</option>`;
+        
+        if (addGeneralOption) {
+            const option = new Option('-- General (Toda la Institución) --', '0');
+            select.add(option);
+        }
+
         data.forEach(item => {
             select.add(new Option(item[textField], item[valueField]));
         });
@@ -268,7 +278,7 @@ async function resetSesionesView() {
     document.getElementById('btn-agendar-extraordinaria').disabled = true;
 }
 
-async function poblarInstituciones(responsableId, institucionSelectId, organoSelectId = null) {
+async function poblarInstituciones(responsableId, institucionSelectId, organoSelectId = null, callbackFn = null) {
     const selectInstitucion = document.getElementById(institucionSelectId);
     selectInstitucion.innerHTML = '<option value="">Seleccione...</option>';
     selectInstitucion.disabled = true;
@@ -280,20 +290,19 @@ async function poblarInstituciones(responsableId, institucionSelectId, organoSel
         }
     }
     if (!responsableId) { 
-        if (organoSelectId && typeof buscarCalendario === 'function') buscarCalendario();
-        if (organoSelectId && typeof cargarRecomendacionesIndependientes === 'function') cargarRecomendacionesIndependientes();
-        if (institucionSelectId === 'filtro-informe-institucion') cargarInformes();
+        if (callbackFn) callbackFn();
         return; 
     }
     try {
         selectInstitucion.innerHTML = '<option value="">Cargando...</option>';
         await poblarSelectConAPI(`http://localhost:5001/api/instituciones?responsable_id=${responsableId}`, institucionSelectId, 'id_institucion', 'nombre_institucion', 'Seleccione...');
         selectInstitucion.disabled = false;
+        if (callbackFn) callbackFn();
     } catch (error) { console.error("Fallo en poblarInstituciones:", error); }
 }
 
 
-async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn = null) {
+async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn = null, addGeneral = false) {
     const selectOrgano = document.getElementById(organoSelectId);
     selectOrgano.innerHTML = '<option value="">Seleccione...</option>';
     selectOrgano.disabled = true;
@@ -303,7 +312,7 @@ async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn
     }
     try {
         selectOrgano.innerHTML = '<option value="">Cargando...</option>';
-        await poblarSelectConAPI(`http://localhost:5001/api/organos-colegiados?institucion_id=${institucionId}`, organoSelectId, 'id_organo_colegiado', 'nombre_organo', 'Seleccione...');
+        await poblarSelectConAPI(`http://localhost:5001/api/organos-colegiados?institucion_id=${institucionId}`, organoSelectId, 'id_organo_colegiado', 'nombre_organo', 'Seleccione...', addGeneral);
         selectOrgano.disabled = false;
         if (callbackFn) callbackFn();
     } catch (error) { console.error("Fallo en poblarOrganosColegiados:", error); }
@@ -525,15 +534,15 @@ function initReportesModule() {
 
     document.getElementById('filtro-informe-periodo')?.addEventListener('change', cargarInformes);
     document.getElementById('filtro-informe-responsable')?.addEventListener('change', (e) => {
-        poblarInstituciones(e.target.value, 'filtro-informe-institucion', 'filtro-informe-organo');
+        poblarInstituciones(e.target.value, 'filtro-informe-institucion', 'filtro-informe-organo', cargarInformes);
         cargarInformes(); 
     });
     document.getElementById('filtro-informe-institucion')?.addEventListener('change', (e) => {
-        poblarOrganosColegiados(e.target.value, 'filtro-informe-organo', cargarInformes);
+        poblarOrganosColegiados(e.target.value, 'filtro-informe-organo', cargarInformes, true);
     });
     document.getElementById('filtro-informe-organo')?.addEventListener('change', cargarInformes);
     
-    // CORRECCIÓN: Listeners restaurados
+    // CORRECCIÓN: Listeners restaurados para el flujo de detalle de informe
     document.getElementById('recomendacion-form')?.addEventListener('submit', handleRecomendacionFormSubmit);
     document.getElementById('recomendaciones-informe-tbody')?.addEventListener('click', handleRecomendacionesTableClick);
     document.getElementById('recomendacion-detalle-modal')?.addEventListener('click', handleDetalleRecomendacionModalClick);
@@ -1024,7 +1033,6 @@ async function handleEditRecomendacion(recId) {
         }
     }
 
-    // CORRECCIÓN: Llamar a la validación explícitamente después de poblar el formulario.
     formValidators[form.id].validate();
 }
 
@@ -1124,3 +1132,179 @@ async function cargarRecomendacionesIndependientes() {
         tbody.innerHTML = '<tr><td colspan="11">Error al cargar datos.</td></tr>';
     }
 }
+
+// =============================================================
+// MÓDULO PARA DIRECTORIO
+// =============================================================
+let directorioData = {};
+
+function initDirectorioModule() {
+    document.getElementById('filtro-dir-responsable')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'filtro-dir-institucion', 'filtro-dir-organo', cargarContactos));
+    document.getElementById('filtro-dir-institucion')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'filtro-dir-organo', cargarContactos, true));
+    document.getElementById('filtro-dir-organo')?.addEventListener('change', cargarContactos);
+
+    document.getElementById('btn-nuevo-contacto')?.addEventListener('click', handleNuevoContactoClick);
+    document.getElementById('directorio-form')?.addEventListener('submit', handleDirectorioFormSubmit);
+    document.getElementById('directorio-tbody')?.addEventListener('click', handleDirectorioRowClick);
+
+    document.getElementById('dir-responsable-select')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'dir-institucion-select', 'dir-organo-select'));
+    document.getElementById('dir-institucion-select')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'dir-organo-select', null, true));
+}
+
+async function resetDirectorioView() {
+    await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-dir-responsable', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+    const instSelect = document.getElementById('filtro-dir-institucion');
+    instSelect.innerHTML = '<option value="">Seleccione responsable...</option>';
+    instSelect.disabled = true;
+    
+    const organoSelect = document.getElementById('filtro-dir-organo');
+    organoSelect.innerHTML = '<option value="">Seleccione institución...</option>';
+    organoSelect.disabled = true;
+
+    document.getElementById('directorio-tbody').innerHTML = '<tr><td colspan="6">Por favor, complete los filtros para ver los contactos.</td></tr>';
+    document.getElementById('btn-nuevo-contacto').disabled = false;
+}
+
+async function cargarContactos() {
+    const institucionId = document.getElementById('filtro-dir-institucion').value;
+    const organoId = document.getElementById('filtro-dir-organo').value;
+    const tbody = document.getElementById('directorio-tbody');
+
+    if (!institucionId) {
+        tbody.innerHTML = '<tr><td colspan="6">Por favor, seleccione una institución.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '<tr><td colspan="6">Cargando...</td></tr>';
+    try {
+        let url = `http://localhost:5001/api/directorio?institucion_id=${institucionId}`;
+        if (organoId) {
+            url += `&organo_id=${organoId}`;
+        }
+        const contactos = await fetchAPI(url);
+        renderContactos(contactos);
+    } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="6">Error al cargar los contactos.</td></tr>';
+    }
+}
+
+function renderContactos(contactos) {
+    const tbody = document.getElementById('directorio-tbody');
+    tbody.innerHTML = '';
+    directorioData = {};
+    if (contactos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6">No hay contactos para esta selección.</td></tr>';
+        return;
+    }
+    contactos.forEach(contacto => {
+        directorioData[contacto.id_contacto] = contacto;
+        const tr = document.createElement('tr');
+        tr.dataset.contactoId = contacto.id_contacto;
+        tr.innerHTML = `
+            <td>${contacto.nombre_contacto}</td>
+            <td>${contacto.telefono || 'N/A'}</td>
+            <td>${contacto.extension || 'N/A'}</td>
+            <td>${contacto.email || 'N/A'}</td>
+            <td>${contacto.movil || 'N/A'}</td>
+            <td class="actions-cell">
+                <button class="btn-warning btn-edit-contacto">Editar</button>
+                <button class="btn-danger btn-delete-contacto">Eliminar</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function handleNuevoContactoClick() {
+    const form = document.getElementById('directorio-form');
+    form.reset();
+    document.getElementById('id_contacto_hidden').value = '';
+    document.getElementById('directorio-modal-title').textContent = 'Nuevo Contacto';
+    
+    document.getElementById('dir-creation-fields').classList.remove('hidden');
+    form.querySelectorAll('#dir-creation-fields select').forEach(sel => sel.required = true);
+    
+    await poblarSelectConAPI('http://localhost:5001/api/responsables', 'dir-responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+    document.getElementById('dir-institucion-select').innerHTML = '<option value="">Seleccione responsable...</option>';
+    document.getElementById('dir-institucion-select').disabled = true;
+    document.getElementById('dir-organo-select').innerHTML = '<option value="">Seleccione institución...</option>';
+    document.getElementById('dir-organo-select').disabled = true;
+
+    document.getElementById('directorio-modal').style.display = 'flex';
+    formValidators[form.id].validate();
+}
+
+async function handleDirectorioFormSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    const contactoId = formData.get('id_contacto');
+    const method = contactoId ? 'PUT' : 'POST';
+    const url = contactoId ? `http://localhost:5001/api/directorio/${contactoId}` : 'http://localhost:5001/api/directorio';
+
+    if (contactoId) {
+        const contacto = directorioData[contactoId];
+        formData.append('id_institucion', contacto.id_institucion);
+        formData.append('id_organo_colegiado', contacto.id_organo_colegiado || '0');
+    }
+    
+    try {
+        await fetchAPI(url, { method, body: formData });
+        form.reset();
+        document.getElementById('directorio-modal').style.display = 'none';
+        showNotification('Contacto guardado exitosamente.');
+        cargarContactos();
+    } catch (error) {
+        showNotification(`Error: ${error.message}`, 'error');
+    }
+}
+
+function handleDirectorioRowClick(event) {
+    const target = event.target;
+    const contactoId = target.closest('tr')?.dataset.contactoId;
+    if (!contactoId) return;
+
+    if (target.classList.contains('btn-edit-contacto')) {
+        handleEditContacto(contactoId);
+    }
+    if (target.classList.contains('btn-delete-contacto')) {
+        handleDeleteContacto(contactoId);
+    }
+}
+
+function handleEditContacto(contactoId) {
+    const contacto = directorioData[contactoId];
+    if (!contacto) return;
+
+    const form = document.getElementById('directorio-form');
+    form.reset();
+    document.getElementById('id_contacto_hidden').value = contacto.id_contacto;
+    document.getElementById('directorio-modal-title').textContent = 'Editar Contacto';
+
+    document.getElementById('dir-creation-fields').classList.add('hidden');
+    form.querySelectorAll('#dir-creation-fields select').forEach(sel => sel.required = false);
+
+    form.querySelector('[name="nombre_contacto"]').value = contacto.nombre_contacto || '';
+    form.querySelector('[name="telefono"]').value = contacto.telefono || '';
+    form.querySelector('[name="extension"]').value = contacto.extension || '';
+    form.querySelector('[name="email"]').value = contacto.email || '';
+    form.querySelector('[name="movil"]').value = contacto.movil || '';
+    form.querySelector('[name="direccion"]').value = contacto.direccion || '';
+
+    document.getElementById('directorio-modal').style.display = 'flex';
+    formValidators[form.id].validate();
+}
+
+function handleDeleteContacto(contactoId) {
+    showConfirmModal('Confirmar Eliminación', '¿Está seguro de que desea eliminar este contacto?', async () => {
+        try {
+            await fetchAPI(`http://localhost:5001/api/directorio/${contactoId}`, { method: 'DELETE' });
+            showNotification('Contacto eliminado.');
+            cargarContactos();
+        } catch (error) {
+            showNotification(`Error: ${error.message}`, 'error');
+        }
+    });
+}
+
