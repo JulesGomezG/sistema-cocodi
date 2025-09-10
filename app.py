@@ -314,7 +314,7 @@ def get_dashboard_stats():
         avg_age_result = cur.fetchone()['avg_age']
         antiguedad_promedio_dias = int(round(avg_age_result)) if avg_age_result is not None else 0
         
-        # 6. NUEVO: Conteo de pendientes por prioridad
+        # 6. Conteo de pendientes por prioridad
         sql_prioridad = """
             SELECT prioridad, COUNT(*) AS count
             FROM Recomendaciones
@@ -324,6 +324,16 @@ def get_dashboard_stats():
         """
         cur.execute(sql_prioridad)
         prioridad_stats = [dict(row) for row in cur.fetchall()]
+
+        # 7. NUEVO: Conteo de recomendaciones por tipo
+        sql_tipo = """
+            SELECT tipo_recomendacion, COUNT(*) AS count
+            FROM Recomendaciones
+            WHERE activo = TRUE
+            GROUP BY tipo_recomendacion;
+        """
+        cur.execute(sql_tipo)
+        tipo_stats = [dict(row) for row in cur.fetchall()]
         
         # Ensamblar el resultado final
         dashboard_data = {
@@ -332,7 +342,8 @@ def get_dashboard_stats():
             "top_instituciones_pendientes": top_instituciones,
             "vencidas_count": vencidas_count,
             "antiguedad_promedio": antiguedad_promedio_dias,
-            "prioridad_stats": prioridad_stats # <-- NUEVO DATO AÑADIDO
+            "prioridad_stats": prioridad_stats,
+            "tipo_stats": tipo_stats # <-- NUEVO DATO AÑADIDO
         }
         
         return jsonify(dashboard_data)
@@ -344,7 +355,6 @@ def get_dashboard_stats():
             conn.close()
 
 # ... (El resto del código no cambia) ...
-
 @app.route('/api/calendario-sesiones', methods=['GET'])
 def obtener_o_crear_calendario():
     año = request.args.get('año', type=int)
