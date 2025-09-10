@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
             sections.forEach(section => section.classList.toggle('hidden', section.id !== sectionId));
             navLinks.forEach(navLink => navLink.classList.remove('active'));
             link.classList.add('active');
+            
             if (sectionId === 'section-reportes') {
                 showReportesMainView();
             }
@@ -21,6 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sectionId === 'section-directorio') {
                 resetDirectorioView();
             }
+            if (sectionId === 'section-dashboard') {
+                cargarDatosDashboard();
+            }
         });
     });
 
@@ -28,11 +32,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initAllModals();
     initConfirmModal();
     initAllFormValidations();
-    initFileInputManagers(); 
+    initFileInputManagers();  
     initSesionesModule();
     initReportesModule();
     initRecomendacionesModule();
     initDirectorioModule(); 
+    initDashboardModule();
 });
 
 // =============================================================
@@ -542,7 +547,6 @@ function initReportesModule() {
     });
     document.getElementById('filtro-informe-organo')?.addEventListener('change', cargarInformes);
     
-    // CORRECCIÓN: Listeners restaurados para el flujo de detalle de informe
     document.getElementById('recomendacion-form')?.addEventListener('submit', handleRecomendacionFormSubmit);
     document.getElementById('recomendaciones-informe-tbody')?.addEventListener('click', handleRecomendacionesTableClick);
     document.getElementById('recomendacion-detalle-modal')?.addEventListener('click', handleDetalleRecomendacionModalClick);
@@ -1308,3 +1312,190 @@ function handleDeleteContacto(contactoId) {
     });
 }
 
+// =============================================================
+// =================== MÓDULO PARA DASHBOARD =====================
+// =============================================================
+
+let recomendacionesChartInstance = null;
+let prioridadChartInstance = null;
+
+function initDashboardModule() {
+    // Función de inicialización para futuros listeners del dashboard.
+}
+
+async function cargarDatosDashboard() {
+    const kpiContainerVencidas = document.getElementById('dashboard-kpi-vencidas');
+    const kpiContainerAntiguedad = document.getElementById('dashboard-kpi-antiguedad');
+    const kpiContainerSesiones = document.getElementById('dashboard-kpi-sesiones');
+    const topTbody = document.getElementById('dashboard-top-instituciones-tbody');
+    
+    // Mostrar estado de carga inicial
+    kpiContainerVencidas.innerHTML = '<p>Cargando...</p>';
+    kpiContainerAntiguedad.innerHTML = '<p>Cargando...</p>';
+    kpiContainerSesiones.innerHTML = '<p>Cargando...</p>';
+    topTbody.innerHTML = '<tr><td colspan="2">Cargando...</td></tr>';
+    
+    try {
+        const data = await fetchAPI('http://localhost:5001/api/dashboard/stats');
+        
+        // Renderizar KPI de Alertas Vencidas
+        const { vencidas_count } = data;
+        kpiContainerVencidas.innerHTML = `
+            <p>Recomendaciones con fecha vencida:</p>
+            <p class="${vencidas_count > 0 ? 'kpi-alert' : 'kpi-number'}">${vencidas_count}</p>
+        `;
+        
+        // Renderizar KPI de Antigüedad Promedio
+        const { antiguedad_promedio } = data;
+        kpiContainerAntiguedad.innerHTML = `
+            <p>Días promedio que llevan abiertas:</p>
+            <p class="kpi-number">${antiguedad_promedio}</p>
+            <p>días</p>
+        `;
+
+        // Renderizar KPI de Sesiones
+        const { sesiones_stats } = data;
+        kpiContainerSesiones.innerHTML = `
+            <p><strong>${sesiones_stats.realizadas}</strong> de <strong>${sesiones_stats.total_programadas}</strong> Sesiones Realizadas</p>
+            <p class="kpi-number">${sesiones_stats.cumplimiento_pct}%</p>
+            <p>de Cumplimiento</p>
+        `;
+        
+        // Renderizar Top 5 Instituciones
+        const { top_instituciones_pendientes } = data;
+        topTbody.innerHTML = '';
+        if (top_instituciones_pendientes.length > 0) {
+            top_instituciones_pendientes.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${item.siglas}</td>
+                    <td>${item.pendientes_count}</td>
+                `;
+                topTbody.appendChild(tr);
+            });
+        } else {
+            topTbody.innerHTML = '<tr><td colspan="2">No hay recomendaciones pendientes.</td></tr>';
+        }
+
+        // Renderizar Gráficos
+        renderRecomendacionesChart(data.recomendaciones_stats);
+        renderPrioridadChart(data.prioridad_stats);
+
+    } catch (error) {
+        console.error("Error al cargar datos del dashboard:", error);
+        showNotification('No se pudieron cargar los datos del dashboard.', 'error');
+        kpiContainerVencidas.innerHTML = '<p>Error al cargar datos.</p>';
+        kpiContainerAntiguedad.innerHTML = '<p>Error al cargar datos.</p>';
+        kpiContainerSesiones.innerHTML = '<p>Error al cargar datos.</p>';
+        topTbody.innerHTML = '<tr><td colspan="2">Error al cargar datos.</td></tr>';
+    }
+}
+
+function renderRecomendacionesChart(stats) {
+    const ctx = document.getElementById('recomendaciones-chart').getContext('2d');
+
+    if (recomendacionesChartInstance) {
+        recomendacionesChartInstance.destroy();
+    }
+
+    const labels = stats.map(item => item.estatus);
+    const data = stats.map(item => item.count);
+
+    const backgroundColors = [
+        '#1e5b4f', // Verde (para 'Completada' o 'Cerrada')
+        '#a57f2c', // Dorado (para 'Pendiente')
+        '#9b2247', // Vino claro (para 'En Proceso')
+        '#6c757d', // Gris (para 'Cancelada')
+    ];
+
+    const estatusOrden = ['Completada', 'Cerrada', 'Pendiente', 'En Proceso', 'Cancelada'];
+    
+    const chartColors = labels.map(label => {
+        const index = estatusOrden.indexOf(label);
+        return backgroundColors[index % backgroundColors.length];
+    });
+
+
+    recomendacionesChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Recomendaciones',
+                data: data,
+                backgroundColor: chartColors,
+                borderColor: '#fff',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: true,
+                    text: 'Distribución de Recomendaciones por Estatus'
+                }
+            }
+        }
+    });
+}
+
+function renderPrioridadChart(stats) {
+    const ctx = document.getElementById('prioridad-chart').getContext('2d');
+
+    if (prioridadChartInstance) {
+        prioridadChartInstance.destroy();
+    }
+
+    // Asegurar un orden consistente para las etiquetas (Alta, Media, Baja)
+    const prioridadOrden = ['Alta', 'Media', 'Baja'];
+    const dataMap = new Map(stats.map(item => [item.prioridad, item.count]));
+    
+    const labels = prioridadOrden;
+    const data = prioridadOrden.map(p => dataMap.get(p) || 0);
+
+    prioridadChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Nº de Pendientes',
+                data: data,
+                backgroundColor: [
+                    'rgba(220, 53, 69, 0.7)',  // Rojo para Alta
+                    'rgba(255, 193, 7, 0.7)',   // Amarillo para Media
+                    'rgba(25, 135, 84, 0.7)'    // Verde para Baja
+                ],
+                borderColor: [
+                    'rgb(220, 53, 69)',
+                    'rgb(255, 193, 7)',
+                    'rgb(25, 135, 84)'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y', // <-- Esto hace el gráfico de barras horizontal
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false // La leyenda no es necesaria aquí
+                },
+                title: {
+                    display: true,
+                    text: 'Recomendaciones Pendientes por Nivel de Prioridad'
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}

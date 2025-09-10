@@ -4,6 +4,7 @@ import os
 import psycopg2
 import psycopg2.extras
 from werkzeug.utils import secure_filename
+import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -14,7 +15,6 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def get_db_connection():
-    # Asegúrate de que la variable de entorno DATABASE_URL esté configurada
     conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
     return conn
 
@@ -161,11 +161,9 @@ def crear_contacto():
     organo_id = data.get('id_organo_colegiado')
     if not organo_id or organo_id == '0':
         organo_id = None
-
-    # Asegurarse de que los IDs son enteros
+    
     try:
         id_institucion_int = int(data['id_institucion'])
-        # Corrección para manejar organo_id None antes de convertir a int
         organo_id_int = int(organo_id) if organo_id is not None else None
     except (ValueError, TypeError):
         return jsonify({"error": "El ID de institución u órgano no es un número válido"}), 400
@@ -196,9 +194,8 @@ def crear_contacto():
     except psycopg2.Error as e:
         if conn:
             conn.rollback() 
-        # Este mensaje ahora aparecerá en el frontend, dándote la pista exacta
         return jsonify({"error": f"Error en la base de datos: {e.pgerror}"}), 500
-
+        
     finally:
         if cur:
             cur.close()
@@ -239,11 +236,117 @@ def eliminar_contacto(contacto_id):
     return jsonify({"message": "Contacto eliminado."})
 
 # =============================================================
-# ENDPOINTS DE SESIONES (SIN CAMBIOS)
+# ENDPOINTS PARA DASHBOARD
 # =============================================================
+@app.route('/api/dashboard/stats', methods=['GET'])
+def get_dashboard_stats():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # 1. Estadísticas de Recomendaciones por Estatus
+        sql_rec_stats = """
+            SELECT estatus, COUNT(id_recomendacion) as count
+            FROM Recomendaciones
+            WHERE activo = TRUE
+            GROUP BY estatus;
+        """
+        cur.execute(sql_rec_stats)
+        recomendaciones_stats = [dict(row) for row in cur.fetchall()]
+
+        # 2. Estadísticas de Sesiones del Año Actual
+        current_year = datetime.date.today().year
+        sql_sesiones_stats = """
+            SELECT
+                COUNT(*) AS total_programadas,
+                COUNT(CASE WHEN estatus = 'Realizada' THEN 1 END) AS realizadas
+            FROM Calendario_Sesiones
+            WHERE año = %s AND activo = TRUE;
+        """
+        cur.execute(sql_sesiones_stats, (current_year,))
+        sesiones_stats_raw = cur.fetchone()
+        
+        cumplimiento_pct = 0
+        if sesiones_stats_raw and sesiones_stats_raw['total_programadas'] > 0:
+            cumplimiento_pct = (sesiones_stats_raw['realizadas'] / sesiones_stats_raw['total_programadas']) * 100
+        
+        sesiones_stats = {
+            "total_programadas": sesiones_stats_raw['total_programadas'] if sesiones_stats_raw else 0,
+            "realizadas": sesiones_stats_raw['realizadas'] if sesiones_stats_raw else 0,
+            "cumplimiento_pct": round(cumplimiento_pct, 2)
+        }
+
+        # 3. Top 5 Instituciones con Recomendaciones Pendientes
+        sql_top_instituciones = """
+            SELECT
+                i.siglas,
+                COUNT(r.id_recomendacion) AS pendientes_count
+            FROM Recomendaciones r
+            JOIN Instituciones i ON r.id_institucion = i.id_institucion
+            WHERE r.estatus = 'Pendiente' AND r.activo = TRUE
+            GROUP BY i.siglas
+            ORDER BY pendientes_count DESC
+            LIMIT 5;
+        """
+        cur.execute(sql_top_instituciones)
+        top_instituciones = [dict(row) for row in cur.fetchall()]
+
+        # 4. Conteo de Recomendaciones Vencidas
+        sql_vencidas = """
+            SELECT COUNT(*) as vencidas_count
+            FROM Recomendaciones
+            WHERE fecha_compromiso < CURRENT_DATE
+              AND estatus IN ('Pendiente', 'En Proceso')
+              AND activo = TRUE;
+        """
+        cur.execute(sql_vencidas)
+        vencidas_count = cur.fetchone()['vencidas_count']
+
+        # 5. Antigüedad Promedio de Pendientes
+        sql_antiguedad = """
+            SELECT AVG(CURRENT_DATE - fecha_emision) AS avg_age
+            FROM Recomendaciones
+            WHERE estatus IN ('Pendiente', 'En Proceso')
+              AND activo = TRUE;
+        """
+        cur.execute(sql_antiguedad)
+        avg_age_result = cur.fetchone()['avg_age']
+        antiguedad_promedio_dias = int(round(avg_age_result)) if avg_age_result is not None else 0
+        
+        # 6. NUEVO: Conteo de pendientes por prioridad
+        sql_prioridad = """
+            SELECT prioridad, COUNT(*) AS count
+            FROM Recomendaciones
+            WHERE estatus IN ('Pendiente', 'En Proceso')
+              AND activo = TRUE
+            GROUP BY prioridad;
+        """
+        cur.execute(sql_prioridad)
+        prioridad_stats = [dict(row) for row in cur.fetchall()]
+        
+        # Ensamblar el resultado final
+        dashboard_data = {
+            "recomendaciones_stats": recomendaciones_stats,
+            "sesiones_stats": sesiones_stats,
+            "top_instituciones_pendientes": top_instituciones,
+            "vencidas_count": vencidas_count,
+            "antiguedad_promedio": antiguedad_promedio_dias,
+            "prioridad_stats": prioridad_stats # <-- NUEVO DATO AÑADIDO
+        }
+        
+        return jsonify(dashboard_data)
+
+    except psycopg2.Error as e:
+        return jsonify({"error": f"Error en la base de datos: {e.pgerror}"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# ... (El resto del código no cambia) ...
+
 @app.route('/api/calendario-sesiones', methods=['GET'])
 def obtener_o_crear_calendario():
-    # ... (código sin cambios)
     año = request.args.get('año', type=int)
     institucion_id = request.args.get('institucion_id', type=int)
     organo_id = request.args.get('organo_id', type=int)
@@ -277,7 +380,6 @@ def obtener_o_crear_calendario():
 
 @app.route('/api/ejecucion-sesiones', methods=['POST'])
 def registrar_ejecucion():
-    # ... (código sin cambios)
     data = request.form.to_dict()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -293,7 +395,6 @@ def registrar_ejecucion():
     
 @app.route('/api/ejecucion-sesiones/<int:ejecucion_id>', methods=['PUT'])
 def actualizar_ejecucion(ejecucion_id):
-    # ... (código sin cambios)
     data = request.form.to_dict()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -307,7 +408,6 @@ def actualizar_ejecucion(ejecucion_id):
 
 @app.route('/api/sesiones-extraordinarias', methods=['POST'])
 def registrar_sesion_extraordinaria():
-    # ... (código sin cambios)
     data = request.form.to_dict()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -322,12 +422,8 @@ def registrar_sesion_extraordinaria():
     conn.close()
     return jsonify({"message": "Extraordinaria registrada.", "id_ejecucion": new_id}), 201
 
-# =============================================================
-# ENDPOINTS DE INFORMES Y RECOMENDACIONES (SIN CAMBIOS)
-# =============================================================
 @app.route('/api/informes', methods=['GET', 'POST'])
 def manejar_informes():
-    # ... (código sin cambios)
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     
@@ -417,7 +513,6 @@ def manejar_informes():
 
 @app.route('/api/informes/<int:informe_id>', methods=['GET', 'PUT', 'DELETE'])
 def manejar_informe_detalle(informe_id):
-    # ... (código sin cambios)
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     
@@ -459,7 +554,6 @@ def manejar_informe_detalle(informe_id):
 
 @app.route('/api/recomendaciones', methods=['GET', 'POST'])
 def manejar_recomendaciones():
-    # ... (código sin cambios)
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     if request.method == 'GET':
@@ -552,7 +646,6 @@ def manejar_recomendaciones():
 
 @app.route('/api/recomendaciones/<int:rec_id>', methods=['PUT', 'DELETE'])
 def manejar_recomendacion_detalle(rec_id):
-    # ... (código sin cambios)
     conn = get_db_connection()
     cur = conn.cursor()
     if request.method == 'PUT':
