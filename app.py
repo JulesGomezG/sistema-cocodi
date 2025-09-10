@@ -343,7 +343,7 @@ def get_dashboard_stats():
             "vencidas_count": vencidas_count,
             "antiguedad_promedio": antiguedad_promedio_dias,
             "prioridad_stats": prioridad_stats,
-            "tipo_stats": tipo_stats # <-- NUEVO DATO AÑADIDO
+            "tipo_stats": tipo_stats 
         }
         
         return jsonify(dashboard_data)
@@ -354,7 +354,9 @@ def get_dashboard_stats():
         if conn:
             conn.close()
 
-# ... (El resto del código no cambia) ...
+# =============================================================
+# ENDPOINTS DE SESIONES
+# =============================================================
 @app.route('/api/calendario-sesiones', methods=['GET'])
 def obtener_o_crear_calendario():
     año = request.args.get('año', type=int)
@@ -432,6 +434,9 @@ def registrar_sesion_extraordinaria():
     conn.close()
     return jsonify({"message": "Extraordinaria registrada.", "id_ejecucion": new_id}), 201
 
+# =============================================================
+# ENDPOINTS DE INFORMES Y RECOMENDACIONES
+# =============================================================
 @app.route('/api/informes', methods=['GET', 'POST'])
 def manejar_informes():
     conn = get_db_connection()

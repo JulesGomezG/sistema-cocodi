@@ -1318,6 +1318,7 @@ function handleDeleteContacto(contactoId) {
 
 let recomendacionesChartInstance = null;
 let prioridadChartInstance = null;
+let tipoChartInstance = null;
 
 function initDashboardModule() {
     // Función de inicialización para futuros listeners del dashboard.
@@ -1339,25 +1340,22 @@ async function cargarDatosDashboard() {
         const data = await fetchAPI('http://localhost:5001/api/dashboard/stats');
         
         // Renderizar KPI de Alertas Vencidas
-        const { vencidas_count } = data;
         kpiContainerVencidas.innerHTML = `
             <p>Recomendaciones con fecha vencida:</p>
-            <p class="${vencidas_count > 0 ? 'kpi-alert' : 'kpi-number'}">${vencidas_count}</p>
+            <p class="${data.vencidas_count > 0 ? 'kpi-alert' : 'kpi-number'}">${data.vencidas_count}</p>
         `;
         
         // Renderizar KPI de Antigüedad Promedio
-        const { antiguedad_promedio } = data;
         kpiContainerAntiguedad.innerHTML = `
             <p>Días promedio que llevan abiertas:</p>
-            <p class="kpi-number">${antiguedad_promedio}</p>
+            <p class="kpi-number">${data.antiguedad_promedio}</p>
             <p>días</p>
         `;
 
         // Renderizar KPI de Sesiones
-        const { sesiones_stats } = data;
         kpiContainerSesiones.innerHTML = `
-            <p><strong>${sesiones_stats.realizadas}</strong> de <strong>${sesiones_stats.total_programadas}</strong> Sesiones Realizadas</p>
-            <p class="kpi-number">${sesiones_stats.cumplimiento_pct}%</p>
+            <p><strong>${data.sesiones_stats.realizadas}</strong> de <strong>${data.sesiones_stats.total_programadas}</strong> Sesiones Realizadas</p>
+            <p class="kpi-number">${data.sesiones_stats.cumplimiento_pct}%</p>
             <p>de Cumplimiento</p>
         `;
         
@@ -1380,6 +1378,7 @@ async function cargarDatosDashboard() {
         // Renderizar Gráficos
         renderRecomendacionesChart(data.recomendaciones_stats);
         renderPrioridadChart(data.prioridad_stats);
+        renderTipoChart(data.tipo_stats);
 
     } catch (error) {
         console.error("Error al cargar datos del dashboard:", error);
@@ -1401,20 +1400,12 @@ function renderRecomendacionesChart(stats) {
     const labels = stats.map(item => item.estatus);
     const data = stats.map(item => item.count);
 
-    const backgroundColors = [
-        '#1e5b4f', // Verde (para 'Completada' o 'Cerrada')
-        '#a57f2c', // Dorado (para 'Pendiente')
-        '#9b2247', // Vino claro (para 'En Proceso')
-        '#6c757d', // Gris (para 'Cancelada')
-    ];
-
+    const backgroundColors = [ '#1e5b4f', '#a57f2c', '#9b2247', '#6c757d' ];
     const estatusOrden = ['Completada', 'Cerrada', 'Pendiente', 'En Proceso', 'Cancelada'];
-    
     const chartColors = labels.map(label => {
         const index = estatusOrden.indexOf(label);
         return backgroundColors[index % backgroundColors.length];
     });
-
 
     recomendacionesChartInstance = new Chart(ctx, {
         type: 'doughnut',
@@ -1432,13 +1423,8 @@ function renderRecomendacionesChart(stats) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    position: 'top',
-                },
-                title: {
-                    display: true,
-                    text: 'Distribución de Recomendaciones por Estatus'
-                }
+                legend: { position: 'top' },
+                title: { display: true, text: 'Distribución de Recomendaciones por Estatus' }
             }
         }
     });
@@ -1451,7 +1437,6 @@ function renderPrioridadChart(stats) {
         prioridadChartInstance.destroy();
     }
 
-    // Asegurar un orden consistente para las etiquetas (Alta, Media, Baja)
     const prioridadOrden = ['Alta', 'Media', 'Baja'];
     const dataMap = new Map(stats.map(item => [item.prioridad, item.count]));
     
@@ -1479,23 +1464,56 @@ function renderPrioridadChart(stats) {
             }]
         },
         options: {
-            indexAxis: 'y', // <-- Esto hace el gráfico de barras horizontal
+            indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    display: false // La leyenda no es necesaria aquí
-                },
-                title: {
-                    display: true,
-                    text: 'Recomendaciones Pendientes por Nivel de Prioridad'
-                }
+                legend: { display: false },
+                title: { display: true, text: 'Recomendaciones Pendientes por Prioridad' }
             },
-            scales: {
-                x: {
-                    beginAtZero: true
-                }
-            }
+            scales: { x: { beginAtZero: true } }
+        }
+    });
+}
+
+function renderTipoChart(stats) {
+    const ctx = document.getElementById('tipo-chart').getContext('2d');
+
+    if (tipoChartInstance) {
+        tipoChartInstance.destroy();
+    }
+
+    const labels = stats.map(item => item.tipo_recomendacion);
+    const data = stats.map(item => item.count);
+
+    tipoChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Total de Recomendaciones',
+                data: data,
+                backgroundColor: [
+                    'rgba(155, 34, 71, 0.7)', // Vino
+                    'rgba(30, 91, 79, 0.7)', // Verde
+                    'rgba(165, 127, 44, 0.7)' // Dorado
+                ],
+                borderColor: [
+                    'rgb(155, 34, 71)',
+                    'rgb(30, 91, 79)',
+                    'rgb(165, 127, 44)'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                title: { display: true, text: 'Total de Recomendaciones por Tipo' }
+            },
+            scales: { y: { beginAtZero: true } }
         }
     });
 }
