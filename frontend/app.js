@@ -38,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initRecomendacionesModule();
     initDirectorioModule(); 
     initDashboardModule();
+    initReporteriaModule();
 });
 
 // =============================================================
@@ -86,18 +87,24 @@ function initConfirmModal() {
     const confirmModal = document.getElementById('confirm-modal');
 
     const closeModal = () => {
-        confirmModal.style.display = 'none';
+        if (confirmModal) {
+            confirmModal.style.display = 'none';
+        }
         confirmCallback = null;
     };
 
-    confirmOkBtn.addEventListener('click', () => {
-        if (typeof confirmCallback === 'function') {
-            confirmCallback();
-        }
-        closeModal();
-    });
+    if (confirmOkBtn) {
+        confirmOkBtn.addEventListener('click', () => {
+            if (typeof confirmCallback === 'function') {
+                confirmCallback();
+            }
+            closeModal();
+        });
+    }
 
-    confirmCancelBtn.addEventListener('click', closeModal);
+    if (confirmCancelBtn) {
+        confirmCancelBtn.addEventListener('click', closeModal);
+    }
 }
 
 
@@ -171,6 +178,16 @@ async function poblarSelectConAPI(url, selectId, valueField, textField, placehol
         showNotification(`Error al cargar datos para ${selectId}`, 'error');
     }
 }
+
+function poblarSelectConOpciones(selectId, opciones, placeholder) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = placeholder ? `<option value="">${placeholder}</option>` : '';
+    opciones.forEach(opcion => {
+        select.add(new Option(opcion, opcion));
+    });
+}
+
 
 const fileManagers = {};
 
@@ -285,12 +302,12 @@ async function resetSesionesView() {
 
 async function poblarInstituciones(responsableId, institucionSelectId, organoSelectId = null, callbackFn = null) {
     const selectInstitucion = document.getElementById(institucionSelectId);
-    selectInstitucion.innerHTML = '<option value="">Seleccione...</option>';
+    selectInstitucion.innerHTML = '<option value="">Todos</option>';
     selectInstitucion.disabled = true;
     if (organoSelectId) {
         const selectOrgano = document.getElementById(organoSelectId);
         if (selectOrgano) {
-            selectOrgano.innerHTML = '<option value="">Seleccione...</option>';
+            selectOrgano.innerHTML = '<option value="">Todos</option>';
             selectOrgano.disabled = true;
         }
     }
@@ -300,7 +317,7 @@ async function poblarInstituciones(responsableId, institucionSelectId, organoSel
     }
     try {
         selectInstitucion.innerHTML = '<option value="">Cargando...</option>';
-        await poblarSelectConAPI(`http://localhost:5001/api/instituciones?responsable_id=${responsableId}`, institucionSelectId, 'id_institucion', 'nombre_institucion', 'Seleccione...');
+        await poblarSelectConAPI(`http://localhost:5001/api/instituciones?responsable_id=${responsableId}`, institucionSelectId, 'id_institucion', 'nombre_institucion', 'Todos');
         selectInstitucion.disabled = false;
         if (callbackFn) callbackFn();
     } catch (error) { console.error("Fallo en poblarInstituciones:", error); }
@@ -309,7 +326,7 @@ async function poblarInstituciones(responsableId, institucionSelectId, organoSel
 
 async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn = null, addGeneral = false) {
     const selectOrgano = document.getElementById(organoSelectId);
-    selectOrgano.innerHTML = '<option value="">Seleccione...</option>';
+    selectOrgano.innerHTML = '<option value="">Todos</option>';
     selectOrgano.disabled = true;
     if (!institucionId) { 
         if (callbackFn) callbackFn();
@@ -317,7 +334,7 @@ async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn
     }
     try {
         selectOrgano.innerHTML = '<option value="">Cargando...</option>';
-        await poblarSelectConAPI(`http://localhost:5001/api/organos-colegiados?institucion_id=${institucionId}`, organoSelectId, 'id_organo_colegiado', 'nombre_organo', 'Seleccione...', addGeneral);
+        await poblarSelectConAPI(`http://localhost:5001/api/organos-colegiados?institucion_id=${institucionId}`, organoSelectId, 'id_organo_colegiado', 'nombre_organo', 'Todos', addGeneral);
         selectOrgano.disabled = false;
         if (callbackFn) callbackFn();
     } catch (error) { console.error("Fallo en poblarOrganosColegiados:", error); }
@@ -1345,7 +1362,7 @@ async function cargarDatosDashboard() {
             <p class="${data.vencidas_count > 0 ? 'kpi-alert' : 'kpi-number'}">${data.vencidas_count}</p>
         `;
         
-       // Renderizar KPI de Tiempo Promedio de Atención
+        // Renderizar KPI de Tiempo Promedio de Atención
 		kpiContainerAntiguedad.innerHTML = `
 			<p>Promedio de días sin resolver:</p>
 			<p class="kpi-number">${data.antiguedad_promedio}</p>
@@ -1516,4 +1533,210 @@ function renderTipoChart(stats) {
             scales: { y: { beginAtZero: true } }
         }
     });
+}
+
+// =============================================================
+// =================== MÓDULO DE REPORTERÍA ====================
+// =============================================================
+let reporteActualData = []; // Variable para guardar los datos del último reporte generado
+
+function initReporteriaModule() {
+    const reportTypeSelect = document.getElementById('report-type-select');
+    const filtersRecomendaciones = document.getElementById('filters-recomendaciones');
+    const generateBtn = document.getElementById('generate-report-btn');
+    const exportBtn = document.getElementById('export-excel-btn');
+    
+    if (!reportTypeSelect) return;
+
+    // Poblar los filtros estáticos de recomendaciones
+    poblarSelectConOpciones('report-rec-estatus', ['Pendiente', 'En Proceso', 'Completada', 'Cerrada', 'Cancelada'], 'Todos');
+    poblarSelectConOpciones('report-rec-prioridad', ['Alta', 'Media', 'Baja'], 'Todas');
+    poblarSelectConOpciones('report-rec-tipo', ['Correctiva', 'Preventiva', 'De Mejora Continua'], 'Todos');
+    
+    // Poblar el filtro de responsables
+    poblarSelectConAPI('http://localhost:5001/api/responsables', 'report-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+
+    // Lógica de filtros en cascada
+    document.getElementById('report-rec-responsable')?.addEventListener('change', (e) => {
+        poblarInstituciones(e.target.value, 'report-rec-institucion', 'report-rec-organo');
+    });
+    document.getElementById('report-rec-institucion')?.addEventListener('change', (e) => {
+        poblarOrganosColegiados(e.target.value, 'report-rec-organo', null, true);
+    });
+
+    // Mostrar/ocultar panel de filtros y habilitar botones
+    reportTypeSelect.addEventListener('change', () => {
+        const selectedType = reportTypeSelect.value;
+        document.querySelectorAll('.report-filters').forEach(panel => panel.classList.add('hidden'));
+
+        if (selectedType === 'recomendaciones') {
+            filtersRecomendaciones.classList.remove('hidden');
+        }
+        
+        generateBtn.disabled = !selectedType;
+        exportBtn.disabled = true; // Siempre se deshabilita al cambiar de tipo
+        document.getElementById('report-preview-area').innerHTML = '<p>Aún no se ha generado ningún reporte.</p>';
+    });
+
+    // Evento para el botón de generar reporte
+    generateBtn.addEventListener('click', generarReporteRecomendaciones);
+
+    // Evento para el botón de exportar a Excel
+    exportBtn.addEventListener('click', exportarReporteExcel);
+}
+
+function recogerFiltrosRecomendaciones() {
+    const filters = {};
+    const responsable = document.getElementById('report-rec-responsable').value;
+    const institucion = document.getElementById('report-rec-institucion').value;
+    const organo = document.getElementById('report-rec-organo').value;
+    const fechaDesde = document.getElementById('report-rec-date-from').value;
+    const fechaHasta = document.getElementById('report-rec-date-to').value;
+    const estatus = document.getElementById('report-rec-estatus').value;
+    const prioridad = document.getElementById('report-rec-prioridad').value;
+    const tipo = document.getElementById('report-rec-tipo').value;
+    const vencidas = document.getElementById('report-rec-vencidas').checked;
+
+    if (responsable) filters.responsable_id = parseInt(responsable);
+    if (institucion) filters.institucion_id = parseInt(institucion);
+    if (organo) filters.organo_id = parseInt(organo);
+    if (fechaDesde) filters.date_from = fechaDesde;
+    if (fechaHasta) filters.date_to = fechaHasta;
+    
+    // El backend espera un array para estos filtros. Si hay valor, lo envolvemos en un array.
+    if (estatus) filters.estatus = [estatus];
+    if (prioridad) filters.prioridad = [prioridad];
+    if (tipo) filters.tipo = [tipo];
+
+    if (vencidas) filters.vencidas_only = true;
+
+    return filters;
+}
+
+async function generarReporteRecomendaciones() {
+    const previewArea = document.getElementById('report-preview-area');
+    const exportBtn = document.getElementById('export-excel-btn');
+    previewArea.innerHTML = '<p>Generando reporte, por favor espere...</p>';
+    exportBtn.disabled = true;
+    reporteActualData = [];
+
+    const filters = recogerFiltrosRecomendaciones();
+
+    try {
+        const data = await fetchAPI('http://localhost:5001/api/reportes/recomendaciones', {
+            method: 'POST',
+            body: filters
+        });
+        
+        reporteActualData = data; // Guardamos los datos para la exportación
+        renderTablaReporte(data);
+        exportBtn.disabled = data.length === 0;
+
+    } catch (error) {
+        console.error("Error al generar el reporte:", error);
+        previewArea.innerHTML = `<p style="color: red;">Error al generar el reporte: ${error.message}</p>`;
+        showNotification('Error al generar el reporte.', 'error');
+    }
+}
+
+function renderTablaReporte(data) {
+    const previewArea = document.getElementById('report-preview-area');
+    if (!data || data.length === 0) {
+        previewArea.innerHTML = '<p>No se encontraron resultados con los filtros aplicados.</p>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.id = 'report-table';
+    const thead = document.createElement('thead');
+    const tbody = document.createElement('tbody');
+    
+    // Crear cabeceras de la tabla
+    const headers = Object.keys(data[0]);
+    const headerRow = document.createElement('tr');
+    const headerMap = {
+        'id_recomendacion': 'ID',
+        'institucion': 'Institución',
+        'nombre_organo': 'Órgano Colegiado',
+        'descripcion': 'Descripción',
+        'area_responsable_atencion': 'Área Responsable',
+        'fecha_emision': 'Fecha Emisión',
+        'fecha_compromiso': 'Fecha Compromiso',
+        'estatus': 'Estatus',
+        'prioridad': 'Prioridad',
+        'tipo_recomendacion': 'Tipo'
+    };
+
+    headers.forEach(header => {
+        const th = document.createElement('th');
+        th.textContent = headerMap[header] || header;
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+
+    // Llenar filas de la tabla
+    data.forEach(rowData => {
+        const tr = document.createElement('tr');
+        headers.forEach(header => {
+            const td = document.createElement('td');
+            let cellData = rowData[header];
+            if (header.startsWith('fecha_') && cellData) {
+                cellData = new Date(cellData).toLocaleDateString('es-MX', { timeZone: 'UTC' });
+            }
+            td.textContent = cellData === null ? 'N/A' : cellData;
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    previewArea.innerHTML = '';
+    previewArea.appendChild(table);
+}
+
+function exportarReporteExcel() {
+    if (reporteActualData.length === 0) {
+        showNotification("No hay datos para exportar.", "error");
+        return;
+    }
+
+    // Mapear los nombres de las columnas para el archivo Excel
+    const headerMap = {
+        'id_recomendacion': 'ID',
+        'institucion': 'Institución',
+        'nombre_organo': 'Órgano Colegiado',
+        'descripcion': 'Descripción',
+        'area_responsable_atencion': 'Área Responsable',
+        'fecha_emision': 'Fecha Emisión',
+        'fecha_compromiso': 'Fecha Compromiso',
+        'estatus': 'Estatus',
+        'prioridad': 'Prioridad',
+        'tipo_recomendacion': 'Tipo'
+    };
+
+    // Crear una nueva matriz de datos con los encabezados mapeados
+    const dataParaExportar = reporteActualData.map(row => {
+        const newRow = {};
+        for (const key in row) {
+            if (headerMap[key]) {
+                let value = row[key];
+                 if (key.startsWith('fecha_') && value) {
+                    // Formatear la fecha para que Excel la reconozca correctamente
+                    const date = new Date(value);
+                    value = `${date.getUTCDate()}/${date.getUTCMonth() + 1}/${date.getUTCFullYear()}`;
+                }
+                newRow[headerMap[key]] = value;
+            }
+        }
+        return newRow;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataParaExportar);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Recomendaciones");
+
+    // Generar y descargar el archivo
+    XLSX.writeFile(workbook, "Reporte_Recomendaciones_COCODI.xlsx");
+    showNotification("Exportación a Excel iniciada.");
 }

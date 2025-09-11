@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
     <style>
         :root {
@@ -297,7 +298,7 @@
                     <div><label for="filtro-informe-organo">Órgano Colegiado:</label><select id="filtro-informe-organo" disabled></select></div>
                 </div>
                 <table id="informes-table">
-                    <thead><tr><th>Institución</th><th>Órgano Colegiado</th><th>Descripción</th><th>Tipo de Informe</th><th>Año	</th><th>Fecha Emisión</th><th>Responsable</th><th>Estado Recomendaciones</th><th>Acciones</th></tr></thead>
+                    <thead><tr><th>Institución</th><th>Órgano Colegiado</th><th>Descripción</th><th>Tipo de Informe</th><th>Año </th><th>Fecha Emisión</th><th>Responsable</th><th>Estado Recomendaciones</th><th>Acciones</th></tr></thead>
                     <tbody id="informes-tbody"></tbody>
                 </table>
             </div>
@@ -434,7 +435,55 @@
         </div>
     </section>
 
-    <section id="section-reporteria" class="app-section hidden"><div class="container"><h1>Reportería</h1><p>Próximamente...</p></div></section>
+    <section id="section-reporteria" class="app-section hidden">
+        <div class="container">
+            <div class="header">
+                <h1>Generador de Reportes</h1>
+            </div>
+
+            <div class="filtros">
+                <div style="flex-basis: 100%;"><label for="report-type-select">1. Seleccione el tipo de reporte:</label>
+                    <select id="report-type-select">
+                        <option value="">Seleccione...</option>
+                        <option value="recomendaciones">Reporte Detallado de Recomendaciones</option>
+                        <option value="sesiones" disabled>Reporte de Sesiones (Próximamente)</option>
+                        <option value="informes" disabled>Reporte de Informes (Próximamente)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="filters-recomendaciones" class="report-filters hidden">
+                <h3>2. Aplique los filtros que desee:</h3>
+                <div class="filtros">
+                    <div><label>Fecha de Emisión (Desde):</label><input type="date" id="report-rec-date-from"></div>
+                    <div><label>Fecha de Emisión (Hasta):</label><input type="date" id="report-rec-date-to"></div>
+                    <div><label>Responsable:</label><select id="report-rec-responsable"></select></div>
+                    <div><label>Institución:</label><select id="report-rec-institucion" disabled></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="report-rec-organo" disabled></select></div>
+                    <div><label>Estatus:</label><select id="report-rec-estatus"></select></div>
+                    <div><label>Prioridad:</label><select id="report-rec-prioridad"></select></div>
+                    <div><label>Tipo:</label><select id="report-rec-tipo"></select></div>
+                    <div style="align-self: center;"><input type="checkbox" id="report-rec-vencidas" style="width: auto; margin-right: 10px;"> <label for="report-rec-vencidas">Mostrar sólo vencidas</label></div>
+                </div>
+            </div>
+
+            <div class="header" style="margin-top: 2em;">
+                <h2>3. Genere y Exporte su Reporte</h2>
+                <div>
+                    <button id="generate-report-btn" class="btn-primary" disabled>Generar Reporte en Pantalla</button>
+                    <button id="export-excel-btn" class="btn-info" disabled>Exportar a Excel</button>
+                </div>
+            </div>
+
+            <div id="report-preview-area">
+                <p>Aún no se ha generado ningún reporte.</p>
+                <table id="report-table" class="hidden">
+                    <thead id="report-thead"></thead>
+                    <tbody id="report-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
 
     <div id="ejecucion-modal" class="modal">
         <div class="modal-content">

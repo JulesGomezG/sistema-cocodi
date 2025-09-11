@@ -7,7 +7,10 @@ from werkzeug.utils import secure_filename
 import datetime
 
 app = Flask(__name__)
-CORS(app)
+# --- AJUSTE DE CORS ---
+# Se configura CORS para permitir peticiones desde cualquier origen a todas las rutas bajo /api/
+# Esto soluciona el error de "preflight request" que bloqueaba la comunicación.
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- CONFIGURACIÓN DE CARGA DE ARCHIVOS ---
 UPLOAD_FOLDER = 'uploads'
@@ -325,7 +328,7 @@ def get_dashboard_stats():
         cur.execute(sql_prioridad)
         prioridad_stats = [dict(row) for row in cur.fetchall()]
 
-        # 7. NUEVO: Conteo de recomendaciones por tipo
+        # 7. Conteo de recomendaciones por tipo
         sql_tipo = """
             SELECT tipo_recomendacion, COUNT(*) AS count
             FROM Recomendaciones
@@ -343,7 +346,7 @@ def get_dashboard_stats():
             "vencidas_count": vencidas_count,
             "antiguedad_promedio": antiguedad_promedio_dias,
             "prioridad_stats": prioridad_stats,
-            "tipo_stats": tipo_stats 
+            "tipo_stats": tipo_stats
         }
         
         return jsonify(dashboard_data)
@@ -691,6 +694,78 @@ def manejar_recomendacion_detalle(rec_id):
         cur.close()
         conn.close()
         return jsonify({"message": "Recomendación eliminada."})
+        
+# =============================================================
+# ENDPOINTS PARA REPORTERÍA
+# =============================================================
+@app.route('/api/reportes/recomendaciones', methods=['POST'])
+def generar_reporte_recomendaciones():
+    filters = request.get_json()
+    
+    base_query = """
+        SELECT
+            r.id_recomendacion,
+            i.siglas AS institucion,
+            org.nombre_organo,
+            r.descripcion,
+            r.area_responsable_atencion,
+            r.fecha_emision,
+            r.fecha_compromiso,
+            r.estatus,
+            r.prioridad,
+            r.tipo_recomendacion
+        FROM Recomendaciones r
+        JOIN Instituciones i ON r.id_institucion = i.id_institucion
+        JOIN Catalogo_Organos_Colegiados org ON r.id_organo_colegiado = org.id_organo_colegiado
+        WHERE r.activo = TRUE
+    """
+    
+    params = []
+    where_clauses = []
+
+    if filters.get('responsable_id'):
+        where_clauses.append("i.id_responsable = %s")
+        params.append(filters['responsable_id'])
+    if filters.get('institucion_id'):
+        where_clauses.append("r.id_institucion = %s")
+        params.append(filters['institucion_id'])
+    if filters.get('organo_id'):
+        where_clauses.append("r.id_organo_colegiado = %s")
+        params.append(filters['organo_id'])
+    if filters.get('date_from'):
+        where_clauses.append("r.fecha_emision >= %s")
+        params.append(filters['date_from'])
+    if filters.get('date_to'):
+        where_clauses.append("r.fecha_emision <= %s")
+        params.append(filters['date_to'])
+    
+    # Manejo de filtros multi-selección
+    if filters.get('estatus'):
+        where_clauses.append("r.estatus = ANY(%s)")
+        params.append(filters['estatus'])
+    if filters.get('prioridad'):
+        where_clauses.append("r.prioridad = ANY(%s)")
+        params.append(filters['prioridad'])
+    if filters.get('tipo'):
+        where_clauses.append("r.tipo_recomendacion = ANY(%s)")
+        params.append(filters['tipo'])
+        
+    if filters.get('vencidas_only'):
+        where_clauses.append("r.fecha_compromiso < CURRENT_DATE AND r.estatus IN ('Pendiente', 'En Proceso')")
+
+    if where_clauses:
+        base_query += " AND " + " AND ".join(where_clauses)
+        
+    base_query += " ORDER BY i.siglas, r.fecha_emision;"
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur.execute(base_query, tuple(params))
+    report_data = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    
+    return jsonify(report_data)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)
