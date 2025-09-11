@@ -1345,12 +1345,12 @@ async function cargarDatosDashboard() {
             <p class="${data.vencidas_count > 0 ? 'kpi-alert' : 'kpi-number'}">${data.vencidas_count}</p>
         `;
         
-        // Renderizar KPI de Antigüedad Promedio
-        kpiContainerAntiguedad.innerHTML = `
-            <p>Días promedio que llevan abiertas:</p>
-            <p class="kpi-number">${data.antiguedad_promedio}</p>
-            <p>días</p>
-        `;
+       // Renderizar KPI de Tiempo Promedio de Atención
+		kpiContainerAntiguedad.innerHTML = `
+			<p>Promedio de días sin resolver:</p>
+			<p class="kpi-number">${data.antiguedad_promedio}</p>
+			<p>días por recomendación pendiente</p>
+		`;
 
         // Renderizar KPI de Sesiones
         kpiContainerSesiones.innerHTML = `
