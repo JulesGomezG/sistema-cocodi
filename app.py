@@ -8,8 +8,6 @@ import datetime
 
 app = Flask(__name__)
 # --- AJUSTE DE CORS ---
-# Se configura CORS para permitir peticiones desde cualquier origen a todas las rutas bajo /api/
-# Esto soluciona el error de "preflight request" que bloqueaba la comunicación.
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- CONFIGURACIÓN DE CARGA DE ARCHIVOS ---
@@ -766,6 +764,74 @@ def generar_reporte_recomendaciones():
     conn.close()
     
     return jsonify(report_data)
+
+@app.route('/api/reportes/sesiones', methods=['POST'])
+def generar_reporte_sesiones():
+    filters = request.get_json()
+    
+    base_query = """
+        SELECT
+            cs.año,
+            res.nombre_responsable AS responsable,
+            ins.nombre_institucion AS institucion,
+            org.nombre_organo AS organo_colegiado,
+            cs.tipo_sesion,
+            cs.numero_ordinal,
+            cs.estatus,
+            es.numero_sesion_oficial AS oficio,
+            es.fecha_real
+        FROM Calendario_Sesiones cs
+        JOIN Instituciones ins ON cs.id_institucion = ins.id_institucion
+        JOIN Responsables res ON ins.id_responsable = res.id_responsable
+        JOIN Catalogo_Organos_Colegiados org ON cs.id_organo_colegiado = org.id_organo_colegiado
+        LEFT JOIN Ejecucion_Sesiones es ON cs.id_calendario = es.id_calendario
+        WHERE cs.activo = TRUE
+    """
+    
+    params = []
+    where_clauses = []
+
+    if filters.get('año'):
+        where_clauses.append("cs.año = %s")
+        params.append(filters['año'])
+    if filters.get('responsable_id'):
+        where_clauses.append("ins.id_responsable = %s")
+        params.append(filters['responsable_id'])
+    if filters.get('institucion_id'):
+        where_clauses.append("cs.id_institucion = %s")
+        params.append(filters['institucion_id'])
+    if filters.get('organo_id'):
+        where_clauses.append("cs.id_organo_colegiado = %s")
+        params.append(filters['organo_id'])
+    if filters.get('tipo_sesion'):
+        where_clauses.append("cs.tipo_sesion = %s")
+        params.append(filters['tipo_sesion'])
+    if filters.get('estatus'):
+        where_clauses.append("cs.estatus = %s")
+        params.append(filters['estatus'])
+        
+    # --- FILTROS DE FECHA ---
+    if filters.get('date_from'):
+        where_clauses.append("es.fecha_real >= %s")
+        params.append(filters['date_from'])
+    if filters.get('date_to'):
+        where_clauses.append("es.fecha_real <= %s")
+        params.append(filters['date_to'])
+
+    if where_clauses:
+        base_query += " AND " + " AND ".join(where_clauses)
+        
+    base_query += " ORDER BY cs.año, res.nombre_responsable, ins.nombre_institucion, cs.id_calendario;"
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur.execute(base_query, tuple(params))
+    report_data = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    
+    return jsonify(report_data)
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)

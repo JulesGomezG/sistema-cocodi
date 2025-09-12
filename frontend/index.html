@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-	<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
     <style>
         :root {
@@ -268,7 +268,7 @@
     <section id="section-sesiones" class="app-section">
         <div class="container">
             <div class="header">
-                  <h1>Seguimiento de Sesiones</h1>
+                <h1>Seguimiento de Sesiones</h1>
             </div>
             <div class="filtros">
                 <div><label for="filtro-año">Año:</label><select id="filtro-año"></select></div>
@@ -446,7 +446,7 @@
                     <select id="report-type-select">
                         <option value="">Seleccione...</option>
                         <option value="recomendaciones">Reporte Detallado de Recomendaciones</option>
-                        <option value="sesiones" disabled>Reporte de Sesiones (Próximamente)</option>
+                        <option value="sesiones">Reporte de Sesiones</option>
                         <option value="informes" disabled>Reporte de Informes (Próximamente)</option>
                     </select>
                 </div>
@@ -464,6 +464,20 @@
                     <div><label>Prioridad:</label><select id="report-rec-prioridad"></select></div>
                     <div><label>Tipo:</label><select id="report-rec-tipo"></select></div>
                     <div style="align-self: center;"><input type="checkbox" id="report-rec-vencidas" style="width: auto; margin-right: 10px;"> <label for="report-rec-vencidas">Mostrar sólo vencidas</label></div>
+                </div>
+            </div>
+
+            <div id="filters-sesiones" class="report-filters hidden">
+                <h3>2. Aplique los filtros que desee:</h3>
+                <div class="filtros">
+                    <div><label>Fecha Realizada (Desde):</label><input type="date" id="report-ses-date-from"></div>
+                    <div><label>Fecha Realizada (Hasta):</label><input type="date" id="report-ses-date-to"></div>
+                    <div><label>Año de la Sesión:</label><select id="report-ses-año"></select></div>
+                    <div><label>Responsable:</label><select id="report-ses-responsable"></select></div>
+                    <div><label>Institución:</label><select id="report-ses-institucion" disabled></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="report-ses-organo" disabled></select></div>
+                    <div><label>Tipo de Sesión:</label><select id="report-ses-tipo"></select></div>
+                    <div><label>Estatus:</label><select id="report-ses-estatus"></select></div>
                 </div>
             </div>
 
@@ -492,8 +506,8 @@
                 <span class="close-btn">&times;</span>
             </div>
             <form id="ejecucion-form" class="modal-form">
-                 <input type="hidden" id="id_calendario_hidden" name="id_calendario">
-                 <input type="hidden" id="id_ejecucion_hidden" name="id_ejecucion">
+                <input type="hidden" id="id_calendario_hidden" name="id_calendario">
+                <input type="hidden" id="id_ejecucion_hidden" name="id_ejecucion">
                 <div><label>Número de Oficio:</label><input type="text" name="numero_sesion_oficial" required></div>
                 <div><label>Fecha Real de Ejecución:</label><input type="date" name="fecha_real" required></div>
                 <div><label>Responsable de la Ejecución:</label><input type="text" name="responsable" required></div>

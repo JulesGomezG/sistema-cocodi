@@ -1543,6 +1543,7 @@ let reporteActualData = []; // Variable para guardar los datos del último repor
 function initReporteriaModule() {
     const reportTypeSelect = document.getElementById('report-type-select');
     const filtersRecomendaciones = document.getElementById('filters-recomendaciones');
+    const filtersSesiones = document.getElementById('filters-sesiones');
     const generateBtn = document.getElementById('generate-report-btn');
     const exportBtn = document.getElementById('export-excel-btn');
     
@@ -1556,13 +1557,32 @@ function initReporteriaModule() {
     // Poblar el filtro de responsables
     poblarSelectConAPI('http://localhost:5001/api/responsables', 'report-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
 
-    // Lógica de filtros en cascada
+    // Lógica de filtros en cascada para recomendaciones
     document.getElementById('report-rec-responsable')?.addEventListener('change', (e) => {
         poblarInstituciones(e.target.value, 'report-rec-institucion', 'report-rec-organo');
     });
     document.getElementById('report-rec-institucion')?.addEventListener('change', (e) => {
         poblarOrganosColegiados(e.target.value, 'report-rec-organo', null, true);
     });
+
+    // --- NUEVO: Poblar filtros para Reporte de Sesiones ---
+    const añoSelect = document.getElementById('report-ses-año');
+    añoSelect.innerHTML = '<option value="">Todos</option>';
+    for (let i = 2030; i >= 2024; i--) {
+        añoSelect.add(new Option(i, i));
+    }
+    poblarSelectConAPI('http://localhost:5001/api/responsables', 'report-ses-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    poblarSelectConOpciones('report-ses-tipo', ['Ordinaria', 'Extraordinaria'], 'Todos');
+    poblarSelectConOpciones('report-ses-estatus', ['Programada', 'Realizada'], 'Todos');
+    
+    // --- NUEVO: Lógica de filtros en cascada para sesiones ---
+    document.getElementById('report-ses-responsable')?.addEventListener('change', (e) => {
+        poblarInstituciones(e.target.value, 'report-ses-institucion', 'report-ses-organo');
+    });
+    document.getElementById('report-ses-institucion')?.addEventListener('change', (e) => {
+        poblarOrganosColegiados(e.target.value, 'report-ses-organo', null, true);
+    });
+
 
     // Mostrar/ocultar panel de filtros y habilitar botones
     reportTypeSelect.addEventListener('change', () => {
@@ -1571,6 +1591,8 @@ function initReporteriaModule() {
 
         if (selectedType === 'recomendaciones') {
             filtersRecomendaciones.classList.remove('hidden');
+        } else if (selectedType === 'sesiones') {
+            filtersSesiones.classList.remove('hidden');
         }
         
         generateBtn.disabled = !selectedType;
@@ -1579,7 +1601,14 @@ function initReporteriaModule() {
     });
 
     // Evento para el botón de generar reporte
-    generateBtn.addEventListener('click', generarReporteRecomendaciones);
+    generateBtn.addEventListener('click', () => {
+        const selectedType = document.getElementById('report-type-select').value;
+        if (selectedType === 'recomendaciones') {
+            generarReporteRecomendaciones();
+        } else if (selectedType === 'sesiones') {
+            generarReporteSesiones();
+        }
+    });
 
     // Evento para el botón de exportar a Excel
     exportBtn.addEventListener('click', exportarReporteExcel);
@@ -1603,7 +1632,6 @@ function recogerFiltrosRecomendaciones() {
     if (fechaDesde) filters.date_from = fechaDesde;
     if (fechaHasta) filters.date_to = fechaHasta;
     
-    // El backend espera un array para estos filtros. Si hay valor, lo envolvemos en un array.
     if (estatus) filters.estatus = [estatus];
     if (prioridad) filters.prioridad = [prioridad];
     if (tipo) filters.tipo = [tipo];
@@ -1629,7 +1657,19 @@ async function generarReporteRecomendaciones() {
         });
         
         reporteActualData = data; // Guardamos los datos para la exportación
-        renderTablaReporte(data);
+        const headerMap = {
+            'id_recomendacion': 'ID',
+            'institucion': 'Institución',
+            'nombre_organo': 'Órgano Colegiado',
+            'descripcion': 'Descripción',
+            'area_responsable_atencion': 'Área Responsable',
+            'fecha_emision': 'Fecha Emisión',
+            'fecha_compromiso': 'Fecha Compromiso',
+            'estatus': 'Estatus',
+            'prioridad': 'Prioridad',
+            'tipo_recomendacion': 'Tipo'
+        };
+        renderTablaReporte(data, headerMap);
         exportBtn.disabled = data.length === 0;
 
     } catch (error) {
@@ -1639,7 +1679,69 @@ async function generarReporteRecomendaciones() {
     }
 }
 
-function renderTablaReporte(data) {
+function recogerFiltrosSesiones() {
+    const filters = {};
+    const fechaDesde = document.getElementById('report-ses-date-from').value;
+    const fechaHasta = document.getElementById('report-ses-date-to').value;
+    const año = document.getElementById('report-ses-año').value;
+    const responsable = document.getElementById('report-ses-responsable').value;
+    const institucion = document.getElementById('report-ses-institucion').value;
+    const organo = document.getElementById('report-ses-organo').value;
+    const tipo = document.getElementById('report-ses-tipo').value;
+    const estatus = document.getElementById('report-ses-estatus').value;
+
+    if (fechaDesde) filters.date_from = fechaDesde;
+    if (fechaHasta) filters.date_to = fechaHasta;
+    if (año) filters.año = parseInt(año);
+    if (responsable) filters.responsable_id = parseInt(responsable);
+    if (institucion) filters.institucion_id = parseInt(institucion);
+    if (organo) filters.organo_id = parseInt(organo);
+    if (tipo) filters.tipo_sesion = tipo;
+    if (estatus) filters.estatus = estatus;
+
+    return filters;
+}
+
+async function generarReporteSesiones() {
+    const previewArea = document.getElementById('report-preview-area');
+    const exportBtn = document.getElementById('export-excel-btn');
+    previewArea.innerHTML = '<p>Generando reporte de sesiones, por favor espere...</p>';
+    exportBtn.disabled = true;
+    reporteActualData = [];
+
+    const filters = recogerFiltrosSesiones();
+
+    try {
+        const data = await fetchAPI('http://localhost:5001/api/reportes/sesiones', {
+            method: 'POST',
+            body: filters
+        });
+        
+        reporteActualData = data;
+        
+        const headerMap = {
+            'año': 'Año',
+            'responsable': 'Responsable',
+            'institucion': 'Institución',
+            'organo_colegiado': 'Órgano Colegiado',
+            'tipo_sesion': 'Tipo de Sesión',
+            'numero_ordinal': 'Nº Sesión',
+            'estatus': 'Estatus',
+            'oficio': 'Nº de Oficio',
+            'fecha_real': 'Fecha Realizada'
+        };
+        
+        renderTablaReporte(data, headerMap);
+        exportBtn.disabled = data.length === 0;
+
+    } catch (error) {
+        console.error("Error al generar el reporte de sesiones:", error);
+        previewArea.innerHTML = `<p style="color: red;">Error al generar el reporte: ${error.message}</p>`;
+        showNotification('Error al generar el reporte de sesiones.', 'error');
+    }
+}
+
+function renderTablaReporte(data, headerMap) {
     const previewArea = document.getElementById('report-preview-area');
     if (!data || data.length === 0) {
         previewArea.innerHTML = '<p>No se encontraron resultados con los filtros aplicados.</p>';
@@ -1654,19 +1756,7 @@ function renderTablaReporte(data) {
     // Crear cabeceras de la tabla
     const headers = Object.keys(data[0]);
     const headerRow = document.createElement('tr');
-    const headerMap = {
-        'id_recomendacion': 'ID',
-        'institucion': 'Institución',
-        'nombre_organo': 'Órgano Colegiado',
-        'descripcion': 'Descripción',
-        'area_responsable_atencion': 'Área Responsable',
-        'fecha_emision': 'Fecha Emisión',
-        'fecha_compromiso': 'Fecha Compromiso',
-        'estatus': 'Estatus',
-        'prioridad': 'Prioridad',
-        'tipo_recomendacion': 'Tipo'
-    };
-
+    
     headers.forEach(header => {
         const th = document.createElement('th');
         th.textContent = headerMap[header] || header;
@@ -1680,7 +1770,7 @@ function renderTablaReporte(data) {
         headers.forEach(header => {
             const td = document.createElement('td');
             let cellData = rowData[header];
-            if (header.startsWith('fecha_') && cellData) {
+            if ((header.startsWith('fecha_') || header === 'fecha_real') && cellData) {
                 cellData = new Date(cellData).toLocaleDateString('es-MX', { timeZone: 'UTC' });
             }
             td.textContent = cellData === null ? 'N/A' : cellData;
@@ -1701,32 +1791,25 @@ function exportarReporteExcel() {
         return;
     }
 
-    // Mapear los nombres de las columnas para el archivo Excel
-    const headerMap = {
-        'id_recomendacion': 'ID',
-        'institucion': 'Institución',
-        'nombre_organo': 'Órgano Colegiado',
-        'descripcion': 'Descripción',
-        'area_responsable_atencion': 'Área Responsable',
-        'fecha_emision': 'Fecha Emisión',
-        'fecha_compromiso': 'Fecha Compromiso',
-        'estatus': 'Estatus',
-        'prioridad': 'Prioridad',
-        'tipo_recomendacion': 'Tipo'
-    };
+    const selectedType = document.getElementById('report-type-select').value;
+    let fileName = "Reporte_COCODI.xlsx";
+    let sheetName = "Reporte";
 
-    // Crear una nueva matriz de datos con los encabezados mapeados
+    if (selectedType === 'recomendaciones') {
+        fileName = "Reporte_Recomendaciones_COCODI.xlsx";
+        sheetName = "Recomendaciones";
+    } else if (selectedType === 'sesiones') {
+        fileName = "Reporte_Sesiones_COCODI.xlsx";
+        sheetName = "Sesiones";
+    }
+    
+    // Formatear fechas en los datos antes de exportar
     const dataParaExportar = reporteActualData.map(row => {
-        const newRow = {};
-        for (const key in row) {
-            if (headerMap[key]) {
-                let value = row[key];
-                 if (key.startsWith('fecha_') && value) {
-                    // Formatear la fecha para que Excel la reconozca correctamente
-                    const date = new Date(value);
-                    value = `${date.getUTCDate()}/${date.getUTCMonth() + 1}/${date.getUTCFullYear()}`;
-                }
-                newRow[headerMap[key]] = value;
+        const newRow = {...row};
+        for (const key in newRow) {
+            if ((key.startsWith('fecha_') || key === 'fecha_real') && newRow[key]) {
+                const date = new Date(newRow[key]);
+                newRow[key] = `${date.getUTCDate()}/${date.getUTCMonth() + 1}/${date.getUTCFullYear()}`;
             }
         }
         return newRow;
@@ -1734,9 +1817,8 @@ function exportarReporteExcel() {
 
     const worksheet = XLSX.utils.json_to_sheet(dataParaExportar);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Recomendaciones");
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
 
-    // Generar y descargar el archivo
-    XLSX.writeFile(workbook, "Reporte_Recomendaciones_COCODI.xlsx");
+    XLSX.writeFile(workbook, fileName);
     showNotification("Exportación a Excel iniciada.");
 }
