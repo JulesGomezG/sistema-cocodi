@@ -19,6 +19,9 @@ def get_db_connection():
     conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
     return conn
 
+
+
+
 # =============================================================
 # ENDPOINTS PARA MANEJO DE ARCHIVOS
 # =============================================================
@@ -111,11 +114,22 @@ def obtener_instituciones():
 @app.route('/api/organos-colegiados', methods=['GET'])
 def obtener_organos_filtrados():
     institucion_id = request.args.get('institucion_id', type=int)
-    if not institucion_id: return jsonify([])
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    sql = "SELECT T2.* FROM Institucion_Organos AS T1 JOIN Catalogo_Organos_Colegiados AS T2 ON T1.id_organo_colegiado = T2.id_organo_colegiado WHERE T1.id_institucion = %s ORDER BY T2.nombre_organo;"
-    cur.execute(sql, (institucion_id,))
+    
+    if institucion_id:
+        # Si se especifica una institución, devuelve solo sus órganos (lógica original)
+        sql = """
+            SELECT T2.* FROM Institucion_Organos AS T1 
+            JOIN Catalogo_Organos_Colegiados AS T2 ON T1.id_organo_colegiado = T2.id_organo_colegiado 
+            WHERE T1.id_institucion = %s ORDER BY T2.nombre_organo;
+        """
+        cur.execute(sql, (institucion_id,))
+    else:
+        # Si NO se especifica institución, devuelve TODOS los órganos del catálogo
+        sql = "SELECT * FROM Catalogo_Organos_Colegiados ORDER BY nombre_organo;"
+        cur.execute(sql)
+
     organos = [dict(row) for row in cur.fetchall()]
     cur.close()
     conn.close()
@@ -831,7 +845,89 @@ def generar_reporte_sesiones():
     conn.close()
     
     return jsonify(report_data)
+    
 
+@app.route('/api/reportes/informes', methods=['POST'])
+def generar_reporte_informes():
+    filters = request.get_json()
+    
+    # Inicia la consulta base
+    base_query = """
+        WITH RecCounts AS (
+            SELECT
+                id_informe,
+                COUNT(id_recomendacion) AS recomendaciones_emitidas,
+                COUNT(CASE WHEN estatus IN ('Cerrada', 'Completada') THEN 1 END) AS recomendaciones_atendidas
+            FROM Recomendaciones
+            WHERE activo = TRUE AND id_informe IS NOT NULL
+            GROUP BY id_informe
+        )
+        SELECT 
+            inf.id_informe,
+            res.nombre_responsable,
+            ins.siglas AS institucion,
+            org.nombre_organo,
+            inf.tipo_informe,
+            inf.periodo,
+            inf.fecha_informe,
+            inf.descripcion,
+            COALESCE(rc.recomendaciones_emitidas, 0) AS recomendaciones_emitidas,
+            COALESCE(rc.recomendaciones_atendidas, 0) AS recomendaciones_atendidas
+        FROM Informes_de_Seguimiento AS inf
+        JOIN Instituciones AS ins ON inf.id_institucion = ins.id_institucion
+        JOIN Responsables AS res ON inf.id_responsable = res.id_responsable
+        JOIN Catalogo_Organos_Colegiados AS org ON inf.id_organo_colegiado = org.id_organo_colegiado
+        LEFT JOIN RecCounts rc ON inf.id_informe = rc.id_informe
+        WHERE inf.activo = TRUE
+    """
+    
+    params = []
+    where_clauses = []
+
+    # Aplica los filtros recibidos desde el frontend
+    if filters.get('responsable_id'):
+        where_clauses.append("inf.id_responsable = %s") # Filtro corregido
+        params.append(filters['responsable_id'])
+    if filters.get('institucion_id'):
+        where_clauses.append("inf.id_institucion = %s")
+        params.append(filters['institucion_id'])
+    if filters.get('organo_id'):
+        where_clauses.append("inf.id_organo_colegiado = %s")
+        params.append(filters['organo_id'])
+    if filters.get('periodo'):
+        where_clauses.append("inf.periodo = %s")
+        params.append(filters['periodo'])
+    if filters.get('tipo_informe'):
+        where_clauses.append("inf.tipo_informe = %s")
+        params.append(filters['tipo_informe'])
+
+    # Construye y ejecuta la consulta final
+    if where_clauses:
+        base_query += " AND " + " AND ".join(where_clauses)
+        
+    base_query += " ORDER BY res.nombre_responsable, ins.siglas, inf.fecha_informe DESC;"
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur.execute(base_query, tuple(params))
+    report_data = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    
+    return jsonify(report_data)
+
+
+# =============================================================
+# ENDPOINTS PARA SERVIR EL FRONTEND (PONER AL FINAL)
+# =============================================================
+@app.route('/')
+def serve_index():
+    return send_from_directory('frontend', 'index.html')
+
+@app.route('/<path:path>')
+def serve_frontend_files(path):
+    # Esta ruta comodín DEBE ir después de todas las rutas de la API.
+    return send_from_directory('frontend', path)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)

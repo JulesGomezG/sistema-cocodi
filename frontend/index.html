@@ -14,8 +14,8 @@
         :root {
             --color-gob-vino-oscuro: #611232; /* PANTONE 7421 C */
             --color-gob-vino-claro: #9b2247;  /* PANTONE 7420 C */
-            --color-gob-verde: #1e5b4f;       /* PANTONE 626 C */
-            --color-gob-dorado: #a57f2c;      /* PANTONE 1255 C */
+            --color-gob-verde: #1e5b4f;      /* PANTONE 626 C */
+            --color-gob-dorado: #a57f2c;     /* PANTONE 1255 C */
             --color-gob-gris: #333333;
             --color-gob-fondo: #f4f7f9;
             --color-danger: #dc3545;
@@ -92,6 +92,54 @@
         th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
         th { background-color: #f8f9fa; font-weight: bold; }
         
+        #informes-table td, 
+        #recomendaciones-informe-table td, 
+        #recomendaciones-independientes-table td, 
+        #report-table td {
+            font-size: 0.85em;
+            padding: 8px 10px;
+        }
+
+        .truncate-text {
+            max-width: 250px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+        }
+        
+        /* --- INICIO DE NUEVOS ESTILOS PARA ICONOS --- */
+        .actions-cell {
+            white-space: nowrap;
+        }
+        
+        .btn-icon {
+            background-color: transparent;
+            border: none;
+            padding: 5px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-icon svg {
+            width: 18px;
+            height: 18px;
+            transition: transform 0.2s ease-in-out;
+        }
+        .btn-icon:hover {
+            background-color: #f0f0f0;
+        }
+        .btn-icon:hover svg {
+            transform: scale(1.1);
+        }
+
+        .icon-view { fill: var(--color-gob-verde); }
+        .icon-edit { fill: var(--color-gob-dorado); }
+        .icon-delete { fill: var(--color-danger); }
+        /* --- FIN DE NUEVOS ESTILOS PARA ICONOS --- */
+
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
         .modal-content { 
             background-color: #fefefe; 
@@ -145,8 +193,6 @@
         .estatus-Programada { background-color: var(--color-gob-dorado); }
         .estatus-Realizada { background-color: var(--color-gob-verde); }
         
-        .actions-cell { display: flex; gap: 5px; flex-wrap: wrap; }
-
         #notification-container {
             position: fixed;
             bottom: 20px;
@@ -447,7 +493,7 @@
                         <option value="">Seleccione...</option>
                         <option value="recomendaciones">Reporte Detallado de Recomendaciones</option>
                         <option value="sesiones">Reporte de Sesiones</option>
-                        <option value="informes" disabled>Reporte de Informes (Próximamente)</option>
+                        <option value="informes">Reporte de Informes</option>
                     </select>
                 </div>
             </div>
@@ -458,8 +504,8 @@
                     <div><label>Fecha de Emisión (Desde):</label><input type="date" id="report-rec-date-from"></div>
                     <div><label>Fecha de Emisión (Hasta):</label><input type="date" id="report-rec-date-to"></div>
                     <div><label>Responsable:</label><select id="report-rec-responsable"></select></div>
-                    <div><label>Institución:</label><select id="report-rec-institucion" disabled></select></div>
-                    <div><label>Órgano Colegiado:</label><select id="report-rec-organo" disabled></select></div>
+                    <div><label>Institución:</label><select id="report-rec-institucion"></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="report-rec-organo"></select></div>
                     <div><label>Estatus:</label><select id="report-rec-estatus"></select></div>
                     <div><label>Prioridad:</label><select id="report-rec-prioridad"></select></div>
                     <div><label>Tipo:</label><select id="report-rec-tipo"></select></div>
@@ -474,13 +520,38 @@
                     <div><label>Fecha Realizada (Hasta):</label><input type="date" id="report-ses-date-to"></div>
                     <div><label>Año de la Sesión:</label><select id="report-ses-año"></select></div>
                     <div><label>Responsable:</label><select id="report-ses-responsable"></select></div>
-                    <div><label>Institución:</label><select id="report-ses-institucion" disabled></select></div>
-                    <div><label>Órgano Colegiado:</label><select id="report-ses-organo" disabled></select></div>
+                    <div><label>Institución:</label><select id="report-ses-institucion"></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="report-ses-organo"></select></div>
                     <div><label>Tipo de Sesión:</label><select id="report-ses-tipo"></select></div>
                     <div><label>Estatus:</label><select id="report-ses-estatus"></select></div>
                 </div>
             </div>
 
+            <div id="filters-informes" class="report-filters hidden">
+                <h3>2. Aplique los filtros que desee:</h3>
+                <div class="filtros">
+                    <div>
+                        <label>Periodo (Año):</label>
+                        <select id="report-inf-periodo"></select>
+                    </div>
+                    <div>
+                        <label>Responsable:</label>
+                        <select id="report-inf-responsable"></select>
+                    </div>
+                    <div>
+                        <label>Institución:</label>
+                        <select id="report-inf-institucion"></select>
+                    </div>
+                    <div>
+                        <label>Órgano Colegiado:</label>
+                        <select id="report-inf-organo"></select>
+                    </div>
+                    <div>
+                        <label>Tipo de Informe:</label>
+                        <select id="report-inf-tipo"></select>
+                    </div>
+                </div>
+            </div>
             <div class="header" style="margin-top: 2em;">
                 <h2>3. Genere y Exporte su Reporte</h2>
                 <div>

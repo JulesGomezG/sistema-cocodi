@@ -17,4 +17,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Comando que se ejecutará cuando el contenedor se inicie
-CMD ["flask", "run", "--host=0.0.0.0"]
+CMD ["python", "app.py"]

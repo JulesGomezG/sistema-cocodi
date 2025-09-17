@@ -1,0 +1,65 @@
+
+Estructura para Nuestros Chats
+Chat 1: El Chat Maestro del Proyecto COCODi
+Este será nuestro chat principal y de larga duración. Su propósito es ser la "fuente de verdad" del estado actual y completo del proyecto. Lo usaremos para:
+
+Mantener el código completo y actualizado de la aplicación.
+
+Discutir ideas generales o la arquitectura del proyecto.
+
+Cuando iniciemos un nuevo chat de funcionalidad, copiaremos el código de aquí.
+
+Para iniciar (o actualizar) este "Chat 1", usa la siguiente plantilla:
+
+Asunto: Sincronización del Proyecto COCODI
+
+
+
+Hola, Gemini.
+
+Este es nuestro Chat Maestro para el proyecto COCODi. Aquí está el estado actual y completo del código funcional.
+
+Objetivo del Proyecto: Plataforma integral para la gestión y seguimiento de sesiones, informes y recomendaciones de los Comites de Control y Desempeño Institucional (COCODI) de la Secretaria Anticorrupción y Buen Gobierno
+
+Tecnologías: Flask (Python) para el backend, PostgreSQL para la base de datos, y HTML/CSS/JavaScript vainilla para el frontend.
+
+Código Actualizado al 12 de septiembre de 2025. [Fecha de hoy]:
+
+A continuación te iré pegando uno por uno los archivos app.py, index.html y app.js 
+
+app.py:
+
+(pegar el contenido del archivo)
+
+index.html:
+
+HTML
+
+[Pega aquí el contenido completo y final de index.html]
+app.js:
+
+JavaScript
+
+[Pega aquí el contenido completo y final de app.js]
+
+
+
+
+
+Chat 2: El Chat de Funcionalidad Específica (Este Chat)
+Este tipo de chat es para desarrollar una característica concreta de principio a fin. Una vez terminada, cerramos el ciclo y el código se integra al Chat Maestro.
+
+Inicio del Siguiente "Chat 2" (que será el Chat 3)
+Cuando quieras empezar la siguiente tarea (por ejemplo, "implementar el Reporte de Informes"), simplemente inicia un nuevo chat conmigo y usa una plantilla como esta:
+
+Asunto: Nueva Funcionalidad COCODi: [Nombre de la nueva funcionalidad]
+
+Hola, Gemini.
+
+Vamos a empezar a desarrollar una nueva funcionalidad para el proyecto COCODi: [Describe aquí la nueva tarea, por ej: "completar la funcionalidad del Reporte de Informes en la sección de Reportería"].
+
+Te proporciono el código base completo y actualizado del proyecto para que tengamos el contexto correcto.
+
+(Aquí pegarías el mismo bloque de código que usarías para el Chat 1).
+
+¡Excelente! Estoy listo para cuando quieras empezar el siguiente reporte.
