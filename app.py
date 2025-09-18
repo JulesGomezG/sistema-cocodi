@@ -139,6 +139,7 @@ def obtener_organos_filtrados():
     finally:
         conn.close()
     return jsonify(organos)
+
 # =============================================================
 # ENDPOINTS PARA DIRECTORIO
 # =============================================================
@@ -238,6 +239,10 @@ def eliminar_contacto(contacto_id):
 # =============================================================
 # ENDPOINT PARA DASHBOARD (VERSIÓN FINAL CORREGIDA)
 # =============================================================
+
+# =============================================================
+# ENDPOINT PARA DASHBOARD (VERSIÓN FINAL)
+# =============================================================
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
     conn = get_db_connection()
@@ -246,7 +251,7 @@ def get_dashboard_stats():
         dashboard_data = {}
 
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            # Lógica del dashboard... (se mantiene como estaba)
+            # --- Las siguientes consultas están verificadas ---
             cur.execute("SELECT estatus, COUNT(*) as count FROM Recomendaciones WHERE activo = TRUE GROUP BY estatus;")
             dashboard_data["recomendaciones_stats"] = [dict(row) for row in cur.fetchall()]
 
@@ -262,11 +267,21 @@ def get_dashboard_stats():
 
             cur.execute("SELECT COUNT(*) as vencidas_count FROM Recomendaciones WHERE fecha_compromiso < CURRENT_DATE AND estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE;")
             dashboard_data["vencidas_count"] = cur.fetchone()['vencidas_count']
-
-            cur.execute("SELECT AVG(CURRENT_DATE - fecha_emision) AS avg_age FROM Recomendaciones WHERE estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE;")
-            avg_age_result = cur.fetchone()['avg_age']
-            dashboard_data["antiguedad_promedio"] = int(avg_age_result) if avg_age_result is not None else 0
-
+            
+            # --- INICIO DE LA CORRECCIÓN FINAL ---
+            # Se realiza la resta de fechas y se convierte a un número entero.
+            # COALESCE se asegura de que si no hay resultados, devuelva 0.
+            sql_avg_age = """
+                SELECT COALESCE(
+                    AVG(CURRENT_DATE - fecha_emision), 
+                    0
+                )::INTEGER AS avg_age
+                FROM Recomendaciones 
+                WHERE estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE;
+            """
+            cur.execute(sql_avg_age)
+            dashboard_data["antiguedad_promedio"] = cur.fetchone()['avg_age']
+            # --- FIN DE LA CORRECCIÓN FINAL ---
 
             cur.execute("SELECT prioridad, COUNT(*) AS count FROM Recomendaciones WHERE estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE GROUP BY prioridad;")
             dashboard_data["prioridad_stats"] = [dict(row) for row in cur.fetchall()]
@@ -274,10 +289,10 @@ def get_dashboard_stats():
             cur.execute("SELECT tipo_recomendacion, COUNT(*) AS count FROM Recomendaciones WHERE activo = TRUE GROUP BY tipo_recomendacion;")
             dashboard_data["tipo_stats"] = [dict(row) for row in cur.fetchall()]
         
-            cur.execute("SELECT tipo_sesion, COUNT(*) as count FROM Calendario_Sesiones WHERE año = %s GROUP BY tipo_sesion;", (current_year,))
+            cur.execute("SELECT tipo_sesion, COUNT(*) as count FROM Calendario_Sesiones WHERE año = %s AND activo = TRUE GROUP BY tipo_sesion;", (current_year,))
             dashboard_data["sesiones_por_tipo"] = [dict(row) for row in cur.fetchall()]
 
-            cur.execute("SELECT tipo_informe, COUNT(*) as count FROM Informes_de_Seguimiento GROUP BY tipo_informe;")
+            cur.execute("SELECT tipo_informe, COUNT(*) as count FROM Informes_de_Seguimiento WHERE activo = TRUE GROUP BY tipo_informe;")
             informes_por_tipo = [dict(row) for row in cur.fetchall()]
             dashboard_data["informes_por_tipo"] = informes_por_tipo
             dashboard_data["total_informes"] = sum(item['count'] for item in informes_por_tipo)
@@ -294,12 +309,16 @@ def get_dashboard_stats():
         return jsonify(dashboard_data)
 
     except Exception as e:
-        print(f"Error en el endpoint del dashboard: {e}")
-        return jsonify({"error": "Error interno del servidor al obtener estadísticas."}), 500
+        error_details = traceback.format_exc()
+        print(f"Error detallado en dashboard: {error_details}")
+        return jsonify({"error": str(e)}), 500
     finally:
         if conn:
             conn.close()
 
+
+
+            
 # =============================================================
 # ENDPOINTS DE SESIONES
 # =============================================================
@@ -313,7 +332,7 @@ def obtener_o_crear_calendario():
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            query = "SELECT cs.*, es.id_ejecucion, es.numero_sesion_oficial, es.fecha_real, es.responsable as responsable_ejecucion FROM Calendario_Sesiones cs LEFT JOIN Ejecucion_Sesiones es ON cs.id_calendario = es.id_calendario WHERE cs.año = %s AND cs.id_institucion = %s AND cs.id_organo_colegiado = %s ORDER BY cs.tipo_sesion DESC, cs.numero_ordinal ASC;"
+            query = "SELECT cs.*, es.id_ejecucion, es.numero_sesion_oficial, es.fecha_real, es.responsable as responsable_ejecucion FROM Calendario_Sesiones cs LEFT JOIN Ejecucion_Sesiones es ON cs.id_calendario = es.id_calendario WHERE cs.año = %s AND cs.id_institucion = %s AND cs.id_organo_colegiado = %s AND cs.activo = TRUE ORDER BY cs.tipo_sesion DESC, cs.numero_ordinal ASC;"
             cur.execute(query, (año, institucion_id, organo_id))
             sesiones_existentes = cur.fetchall()
 
@@ -378,7 +397,7 @@ def registrar_sesion_extraordinaria():
     return jsonify({"message": "Extraordinaria registrada.", "id_ejecucion": new_id}), 201
 
 # =============================================================
-# INICIO DE SECCIÓN CORREGIDA
+# ENDPOINTS DE INFORMES Y RECOMENDACIONES (CÓDIGO INTEGRADO)
 # =============================================================
 @app.route('/api/informes', methods=['GET', 'POST'])
 def manejar_informes():
@@ -564,26 +583,204 @@ def manejar_recomendacion_detalle(rec_id):
         conn.close()
 
 # =============================================================
-# FIN DE SECCIÓN CORREGIDA
-# =============================================================
-
-# =============================================================
-# ENDPOINTS PARA REPORTERÍA
+# ENDPOINTS PARA REPORTERÍA (CÓDIGO INTEGRADO)
 # =============================================================
 @app.route('/api/reportes/recomendaciones', methods=['POST'])
 def generar_reporte_recomendaciones():
-    # ... (código de reporte)
-    return jsonify([])
+    filters = request.json
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = """
+                SELECT 
+                    r.id_recomendacion,
+                    inst.nombre_institucion as institucion,
+                    COALESCE(coc.nombre_organo, 'N/A') as nombre_organo,
+                    r.descripcion,
+                    r.area_responsable_atencion,
+                    r.fecha_emision,
+                    r.fecha_compromiso,
+                    r.estatus,
+                    r.prioridad,
+                    r.tipo_recomendacion
+                FROM Recomendaciones r
+                JOIN Instituciones inst ON r.id_institucion = inst.id_institucion
+                LEFT JOIN Catalogo_Organos_Colegiados coc ON r.id_organo_colegiado = coc.id_organo_colegiado
+                JOIN Responsables resp ON inst.id_responsable = resp.id_responsable
+            """
+            where_clauses = ["r.activo = TRUE"]
+            params = []
+
+            if filters.get('responsable_id'):
+                where_clauses.append("resp.id_responsable = %s")
+                params.append(filters['responsable_id'])
+            if filters.get('institucion_id'):
+                where_clauses.append("r.id_institucion = %s")
+                params.append(filters['institucion_id'])
+            if filters.get('organo_id'):
+                where_clauses.append("r.id_organo_colegiado = %s")
+                params.append(filters['organo_id'])
+            if filters.get('date_from'):
+                where_clauses.append("r.fecha_emision >= %s")
+                params.append(filters['date_from'])
+            if filters.get('date_to'):
+                where_clauses.append("r.fecha_emision <= %s")
+                params.append(filters['date_to'])
+            if filters.get('estatus'):
+                where_clauses.append("r.estatus = ANY(%s)")
+                params.append(filters['estatus'])
+            if filters.get('prioridad'):
+                where_clauses.append("r.prioridad = ANY(%s)")
+                params.append(filters['prioridad'])
+            if filters.get('tipo'):
+                where_clauses.append("r.tipo_recomendacion = ANY(%s)")
+                params.append(filters['tipo'])
+            if filters.get('vencidas_only'):
+                where_clauses.append("r.fecha_compromiso < CURRENT_DATE AND r.estatus IN ('Pendiente', 'En Proceso')")
+
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+            
+            sql += " ORDER BY r.fecha_emision DESC;"
+            cur.execute(sql, tuple(params))
+            report_data = [dict(row) for row in cur.fetchall()]
+            return jsonify(report_data)
+
+    except Exception as e:
+        print(f"Error en reporte de recomendaciones: {e}")
+        return jsonify({"error": "Error al generar el reporte"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 
 @app.route('/api/reportes/sesiones', methods=['POST'])
 def generar_reporte_sesiones():
-    # ... (código de reporte)
-    return jsonify([])
+    filters = request.json
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = """
+                SELECT
+                    cs.año,
+                    resp.nombre_responsable as responsable,
+                    inst.nombre_institucion as institucion,
+                    coc.nombre_organo as organo_colegiado,
+                    cs.tipo_sesion,
+                    cs.numero_ordinal,
+                    cs.estatus,
+                    es.numero_sesion_oficial as oficio,
+                    es.fecha_real
+                FROM Calendario_Sesiones cs
+                JOIN Instituciones inst ON cs.id_institucion = inst.id_institucion
+                JOIN Responsables resp ON inst.id_responsable = resp.id_responsable
+                JOIN Catalogo_Organos_Colegiados coc ON cs.id_organo_colegiado = coc.id_organo_colegiado
+                LEFT JOIN Ejecucion_Sesiones es ON cs.id_calendario = es.id_calendario
+            """
+            where_clauses = ["cs.activo = TRUE"]
+            params = []
+
+            if filters.get('date_from'):
+                where_clauses.append("es.fecha_real >= %s")
+                params.append(filters['date_from'])
+            if filters.get('date_to'):
+                where_clauses.append("es.fecha_real <= %s")
+                params.append(filters['date_to'])
+            if filters.get('año'):
+                where_clauses.append("cs.año = %s")
+                params.append(filters['año'])
+            if filters.get('responsable_id'):
+                where_clauses.append("resp.id_responsable = %s")
+                params.append(filters['responsable_id'])
+            if filters.get('institucion_id'):
+                where_clauses.append("inst.id_institucion = %s")
+                params.append(filters['institucion_id'])
+            if filters.get('organo_id'):
+                where_clauses.append("coc.id_organo_colegiado = %s")
+                params.append(filters['organo_id'])
+            if filters.get('tipo_sesion'):
+                where_clauses.append("cs.tipo_sesion = %s")
+                params.append(filters['tipo_sesion'])
+            if filters.get('estatus'):
+                where_clauses.append("cs.estatus = %s")
+                params.append(filters['estatus'])
+
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+            
+            sql += " ORDER BY cs.año DESC, inst.nombre_institucion, cs.numero_ordinal;"
+            cur.execute(sql, tuple(params))
+            report_data = [dict(row) for row in cur.fetchall()]
+            return jsonify(report_data)
+            
+    except Exception as e:
+        print(f"Error en reporte de sesiones: {e}")
+        return jsonify({"error": "Error al generar el reporte"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 
 @app.route('/api/reportes/informes', methods=['POST'])
 def generar_reporte_informes():
-    # ... (código de reporte)
-    return jsonify([])
+    filters = request.json
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = """
+                SELECT
+                    i.id_informe,
+                    resp.nombre_responsable,
+                    inst.nombre_institucion as institucion,
+                    coc.nombre_organo,
+                    i.tipo_informe,
+                    i.periodo,
+                    i.fecha_informe,
+                    i.descripcion,
+                    (SELECT COUNT(*) FROM Recomendaciones r WHERE r.id_informe = i.id_informe AND r.activo = TRUE) as recomendaciones_emitidas,
+                    (SELECT COUNT(*) FROM Recomendaciones r WHERE r.id_informe = i.id_informe AND r.estatus IN ('Completada', 'Cerrada') AND r.activo = TRUE) as recomendaciones_atendidas
+                FROM Informes_de_Seguimiento i
+                JOIN Instituciones inst ON i.id_institucion = inst.id_institucion
+                JOIN Responsables resp ON inst.id_responsable = resp.id_responsable
+                JOIN Catalogo_Organos_Colegiados coc ON i.id_organo_colegiado = coc.id_organo_colegiado
+            """
+            where_clauses = ["i.activo = TRUE"]
+            params = []
+
+            if filters.get('periodo'):
+                where_clauses.append("i.periodo = %s")
+                params.append(filters['periodo'])
+            if filters.get('responsable_id'):
+                where_clauses.append("resp.id_responsable = %s")
+                params.append(filters['responsable_id'])
+            if filters.get('institucion_id'):
+                where_clauses.append("inst.id_institucion = %s")
+                params.append(filters['institucion_id'])
+            if filters.get('organo_id'):
+                where_clauses.append("coc.id_organo_colegiado = %s")
+                params.append(filters['organo_id'])
+            if filters.get('tipo_informe'):
+                where_clauses.append("i.tipo_informe = %s")
+                params.append(filters['tipo_informe'])
+
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+            
+            sql += " ORDER BY i.fecha_informe DESC;"
+            cur.execute(sql, tuple(params))
+            report_data = [dict(row) for row in cur.fetchall()]
+            return jsonify(report_data)
+
+    except Exception as e:
+        print(f"Error en reporte de informes: {e}")
+        return jsonify({"error": "Error al generar el reporte"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# =============================================================
+# --- FIN DE CÓDIGO INTEGRADO ---
+# =============================================================
 
 # =============================================================
 # EJECUCIÓN DE LA APLICACIÓN

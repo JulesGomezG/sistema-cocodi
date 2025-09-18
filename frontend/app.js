@@ -139,7 +139,8 @@ function initAllFormValidations() {
 
 
 async function fetchAPI(url, options = {}) {
-    // Esta función ahora asume que las URLs son rutas relativas correctas (ej: /api/endpoint)
+    const finalUrl = url.startsWith('/') ? url : `/api/${url.replace(/^api\//, '')}`;
+
     if (!(options.body instanceof FormData)) {
         options.headers = { 'Content-Type': 'application/json', ...options.headers };
         if (options.body) {
@@ -147,7 +148,7 @@ async function fetchAPI(url, options = {}) {
         }
     }
     
-    const response = await fetch(url, options);
+    const response = await fetch(finalUrl, options);
     
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: `Error HTTP: ${response.status}` }));
@@ -321,7 +322,7 @@ async function poblarInstituciones(responsableId, institucionSelectId, organoSel
     try {
         selectInstitucion.innerHTML = '<option value="">Cargando...</option>';
         await poblarSelectConAPI(url, institucionSelectId, 'id_institucion', 'nombre_institucion', 'Todos');
-        selectInstitucion.disabled = false;
+        selectInstitucion.disabled = !responsableId;
         if (callbackFn) callbackFn();
     } catch (error) { console.error("Fallo en poblarInstituciones:", error); }
 }
@@ -340,7 +341,7 @@ async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn
     try {
         selectOrgano.innerHTML = '<option value="">Cargando...</option>';
         await poblarSelectConAPI(url, organoSelectId, 'id_organo_colegiado', 'nombre_organo', 'Todos', addGeneral);
-        selectOrgano.disabled = false;
+        selectOrgano.disabled = !institucionId;
         if (callbackFn) callbackFn();
     } catch (error) { 
         console.error("Fallo en poblarOrganosColegiados:", error); 
@@ -550,8 +551,9 @@ async function handleEjecucionSubmit(event) {
 
 
 // =============================================================
-// =================== MÓDULO DE INFORMES ======================
+// --- INICIO DE CÓDIGO INTEGRADO ---
 // =============================================================
+
 function initReportesModule() {
     document.getElementById('btn-nuevo-informe')?.addEventListener('click', handleNuevoInformeClick);
     document.getElementById('informe-form')?.addEventListener('submit', handleInformeFormSubmit);
@@ -565,7 +567,6 @@ function initReportesModule() {
     document.getElementById('filtro-informe-periodo')?.addEventListener('change', cargarInformes);
     document.getElementById('filtro-informe-responsable')?.addEventListener('change', (e) => {
         poblarInstituciones(e.target.value, 'filtro-informe-institucion', 'filtro-informe-organo', cargarInformes);
-        cargarInformes(); 
     });
     document.getElementById('filtro-informe-institucion')?.addEventListener('change', (e) => {
         poblarOrganosColegiados(e.target.value, 'filtro-informe-organo', cargarInformes, true);
@@ -636,16 +637,14 @@ async function cargarInformes() {
     const institucionId = document.getElementById('filtro-informe-institucion').value;
     const organoId = document.getElementById('filtro-informe-organo').value;
 
-    // --- INICIO DE CORRECCIÓN ---
     const params = new URLSearchParams();
     if (periodo) params.append('periodo', periodo);
     if (responsableId) params.append('responsable_id', responsableId);
     if (institucionId) params.append('institucion_id', institucionId);
     if (organoId) params.append('organo_id', organoId);
-    
+
     const queryString = params.toString();
     const url = `/api/informes${queryString ? `?${queryString}` : ''}`;
-    // --- FIN DE CORRECCIÓN ---
 
     try {
         const informes = await fetchAPI(url);
@@ -681,10 +680,7 @@ async function cargarInformes() {
                 tbody.appendChild(tr);
             });
         }
-    } catch (error) { 
-        console.error("Error al cargar informes:", error);
-        showNotification("Error al cargar los datos de informes.", 'error');
-    }
+    } catch (error) { console.error("Error al cargar informes:", error); }
 }
 
 async function handleNuevoInformeClick() { 
@@ -872,7 +868,7 @@ function renderRecomendaciones(recomendaciones, tbodyId) {
                 ${organoCell}
                 <td>${descripcionHtml}</td>
                 <td>${rec.area_responsable_atencion}</td>
-                ${!isIndependentView ? `<td>${rec.nombre_organo}</td>` : ''}
+                ${!isIndependentView ? `<td>${rec.nombre_organo || 'N/A'}</td>` : ''}
                 <td>${new Date(rec.fecha_emision).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</td>
                 <td>${rec.fecha_compromiso ? new Date(rec.fecha_compromiso).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'N/A'}</td>
                 <td>${rec.estatus}</td>
@@ -1110,10 +1106,9 @@ async function handleDeleteRecomendacion(recId) {
 function initRecomendacionesModule() {
     document.getElementById('filtro-rec-año')?.addEventListener('change', cargarRecomendacionesIndependientes);
     document.getElementById('filtro-rec-responsable')?.addEventListener('change', (e) => {
-        poblarInstituciones(e.target.value, 'filtro-rec-institucion', 'filtro-rec-organo');
-        cargarRecomendacionesIndependientes(); 
+        poblarInstituciones(e.target.value, 'filtro-rec-institucion', 'filtro-rec-organo', cargarRecomendacionesIndependientes);
     });
-    document.getElementById('filtro-rec-institucion')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'filtro-rec-organo', cargarRecomendacionesIndependientes));
+    document.getElementById('filtro-rec-institucion')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'filtro-rec-organo', cargarRecomendacionesIndependientes, true));
     document.getElementById('filtro-rec-organo')?.addEventListener('change', cargarRecomendacionesIndependientes);
     
     document.getElementById('btn-nueva-recomendacion-independiente')?.addEventListener('click', () => handleNuevaRecomendacionClick({}));
@@ -1121,7 +1116,7 @@ function initRecomendacionesModule() {
     document.getElementById('recomendaciones-independientes-tbody')?.addEventListener('click', handleRecomendacionesTableClick);
     
     document.getElementById('rec-responsable-select')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'rec-institucion-select', 'rec-organo-select'));
-    document.getElementById('rec-institucion-select')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'rec-organo-select'));
+    document.getElementById('rec-institucion-select')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'rec-organo-select', null, true));
 
     resetRecomendacionesView();
 }
@@ -1129,7 +1124,6 @@ function initRecomendacionesModule() {
 async function resetRecomendacionesView() {
     const añoSelect = document.getElementById('filtro-rec-año');
     if (añoSelect) {
-        const añoActual = new Date().getFullYear();
         añoSelect.innerHTML = '<option value="">Todos</option>';
         for (let i = 2030; i >= 2024; i--) {
             añoSelect.add(new Option(i, i));
@@ -1146,10 +1140,10 @@ async function resetRecomendacionesView() {
     organoSelect.innerHTML = '<option value="">Todos</option>';
     organoSelect.disabled = true;
 
-    document.getElementById('recomendaciones-independientes-tbody').innerHTML = '';
+    document.getElementById('recomendaciones-independientes-tbody').innerHTML = '<tr><td colspan="11">Por favor, aplique filtros para buscar.</td></tr>';
     document.getElementById('btn-nueva-recomendacion-independiente').disabled = false;
-
-    cargarRecomendacionesIndependientes();
+    
+    cargarRecomendacionesIndependientes(); // <-- LÍNEA CORREGIDA
 }
 
 
@@ -1164,16 +1158,13 @@ async function cargarRecomendacionesIndependientes() {
     
     tbody.innerHTML = `<tr><td colspan="11">Cargando...</td></tr>`;
 
-    // --- INICIO DE CORRECCIÓN ---
     const params = new URLSearchParams();
     if (año) params.append('año', año);
     if (responsableId) params.append('responsable_id', responsableId);
     if (institucionId) params.append('institucion_id', institucionId);
     if (organoId) params.append('organo_id', organoId);
-
     const queryString = params.toString();
     const url = `/api/recomendaciones${queryString ? `?${queryString}` : ''}`;
-    // --- FIN DE CORRECCIÓN ---
     
     try {
         const recomendaciones = await fetchAPI(url);
@@ -1181,7 +1172,6 @@ async function cargarRecomendacionesIndependientes() {
     } catch (error) {
         console.error("Error al cargar recomendaciones independientes:", error);
         tbody.innerHTML = '<tr><td colspan="11">Error al cargar datos.</td></tr>';
-        showNotification("Error al cargar los datos de recomendaciones.", 'error');
     }
 }
 
@@ -1201,6 +1191,8 @@ function initDirectorioModule() {
 
     document.getElementById('dir-responsable-select')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'dir-institucion-select', 'dir-organo-select'));
     document.getElementById('dir-institucion-select')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'dir-organo-select', null, true));
+    
+    resetDirectorioView();
 }
 
 async function resetDirectorioView() {
@@ -1259,8 +1251,8 @@ function renderContactos(contactos) {
             <td>${contacto.email || 'N/A'}</td>
             <td>${contacto.movil || 'N/A'}</td>
             <td class="actions-cell">
-                <button class="btn-warning btn-edit-contacto">Editar</button>
-                <button class="btn-danger btn-delete-contacto">Eliminar</button>
+                <button class="btn-icon btn-edit-contacto" title="Editar"><svg class="icon-edit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+                <button class="btn-icon btn-delete-contacto" title="Eliminar"><svg class="icon-delete" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -1314,13 +1306,16 @@ async function handleDirectorioFormSubmit(event) {
 
 function handleDirectorioRowClick(event) {
     const target = event.target;
-    const contactoId = target.closest('tr')?.dataset.contactoId;
+    const button = event.target.closest('.btn-icon');
+    if (!button) return;
+
+    const contactoId = button.closest('tr')?.dataset.contactoId;
     if (!contactoId) return;
 
-    if (target.classList.contains('btn-edit-contacto')) {
+    if (button.classList.contains('btn-edit-contacto')) {
         handleEditContacto(contactoId);
     }
-    if (target.classList.contains('btn-delete-contacto')) {
+    if (button.classList.contains('btn-delete-contacto')) {
         handleDeleteContacto(contactoId);
     }
 }
@@ -1400,7 +1395,6 @@ async function cargarDatosDashboard() {
     try {
         const data = await fetchAPI('/api/dashboard/stats');
         
-        // --- Renderizar KPIs y Tablas ---
         if (containers.vencidas) containers.vencidas.innerHTML = `
             <p>Recomendaciones Vencidas</p>
             <p class="${data.vencidas_count > 0 ? 'kpi-alert' : 'kpi-number'}">${data.vencidas_count}</p>
@@ -1482,17 +1476,9 @@ function renderRecomendacionesChart(stats) {
 
     const labels = stats.map(item => item.estatus);
     const data = stats.map(item => item.count);
-
-    const backgroundColors = [ '#1e5b4f', '#a57f2c', '#9b2247', '#6c757d', '#333333' ];
-    const estatusOrden = ['Completada', 'Cerrada', 'Pendiente', 'En Proceso', 'Cancelada'];
-    
-    // Mapeo de colores más robusto
     const colorMap = {
-        'Completada': backgroundColors[0],
-        'Cerrada': backgroundColors[0], // Mismo color que completada
-        'Pendiente': backgroundColors[2],
-        'En Proceso': backgroundColors[1],
-        'Cancelada': backgroundColors[3]
+        'Completada': '#1e5b4f', 'Cerrada': '#1e5b4f', 'Pendiente': '#9b2247',
+        'En Proceso': '#a57f2c', 'Cancelada': '#6c757d'
     };
 
     recomendacionesChartInstance = new Chart(ctx, {
@@ -1500,20 +1486,14 @@ function renderRecomendacionesChart(stats) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Recomendaciones',
-                data: data,
-                backgroundColor: labels.map(label => colorMap[label] || backgroundColors[4]),
-                borderColor: '#fff',
-                borderWidth: 2
+                label: 'Recomendaciones', data: data,
+                backgroundColor: labels.map(label => colorMap[label] || '#333333'),
+                borderColor: '#fff', borderWidth: 2
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'top' },
-                title: { display: true, text: 'Distribución de Recomendaciones por Estatus' }
-            }
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Distribución de Recomendaciones por Estatus' } }
         }
     });
 }
@@ -1528,7 +1508,6 @@ function renderPrioridadChart(stats) {
 
     const prioridadOrden = ['Alta', 'Media', 'Baja'];
     const dataMap = new Map(stats.map(item => [item.prioridad, item.count]));
-    
     const labels = prioridadOrden;
     const data = prioridadOrden.map(p => dataMap.get(p) || 0);
 
@@ -1537,29 +1516,15 @@ function renderPrioridadChart(stats) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Nº de Pendientes',
-                data: data,
-                backgroundColor: [
-                    'rgba(220, 53, 69, 0.7)',  // Rojo para Alta
-                    'rgba(255, 193, 7, 0.7)',   // Amarillo para Media
-                    'rgba(25, 135, 84, 0.7)'    // Verde para Baja
-                ],
-                borderColor: [
-                    'rgb(220, 53, 69)',
-                    'rgb(255, 193, 7)',
-                    'rgb(25, 135, 84)'
-                ],
+                label: 'Nº de Pendientes', data: data,
+                backgroundColor: ['rgba(220, 53, 69, 0.7)','rgba(255, 193, 7, 0.7)','rgba(25, 135, 84, 0.7)'],
+                borderColor: ['rgb(220, 53, 69)','rgb(255, 193, 7)','rgb(25, 135, 84)'],
                 borderWidth: 1
             }]
         },
         options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                title: { display: true, text: 'Recomendaciones Pendientes por Prioridad' }
-            },
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, title: { display: true, text: 'Recomendaciones Pendientes por Prioridad' } },
             scales: { x: { beginAtZero: true } }
         }
     });
@@ -1567,14 +1532,19 @@ function renderPrioridadChart(stats) {
 
 function renderTipoChart(stats, canvasId, titleText, labelField = 'tipo_recomendacion') {
     const ctx = document.getElementById(canvasId)?.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+        if(canvasId !== 'tipo-chart') { 
+            console.warn(`Canvas con ID '${canvasId}' no encontrado.`);
+        }
+        return;
+    }
 
     let chartInstance;
     if (canvasId === 'tipo-chart') chartInstance = tipoChartInstance;
     if (canvasId === 'informes-tipo-chart') chartInstance = informesTipoChartInstance;
     if (canvasId === 'rec-emitidas-tipo-informe-chart') chartInstance = recEmitidasChartInstance;
     if (canvasId === 'rec-atendidas-tipo-informe-chart') chartInstance = recAtendidasChartInstance;
-
+    
     if (chartInstance) {
         chartInstance.destroy();
     }
@@ -1587,28 +1557,15 @@ function renderTipoChart(stats, canvasId, titleText, labelField = 'tipo_recomend
         data: {
             labels: labels,
             datasets: [{
-                label: 'Total',
-                data: data,
-                backgroundColor: [
-                    'rgba(155, 34, 71, 0.7)', 
-                    'rgba(30, 91, 79, 0.7)', 
-                    'rgba(165, 127, 44, 0.7)'
-                ],
-                borderColor: [
-                    'rgb(155, 34, 71)',
-                    'rgb(30, 91, 79)',
-                    'rgb(165, 127, 44)'
-                ],
+                label: 'Total', data: data,
+                backgroundColor: ['rgba(155, 34, 71, 0.7)','rgba(30, 91, 79, 0.7)','rgba(165, 127, 44, 0.7)'],
+                borderColor: ['rgb(155, 34, 71)','rgb(30, 91, 79)','rgb(165, 127, 44)'],
                 borderWidth: 1
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                title: { display: true, text: titleText }
-            },
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, title: { display: true, text: titleText } },
             scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
         }
     });
@@ -1635,26 +1592,18 @@ function renderSesionesTipoChart(stats) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Sesiones',
-                data: data,
-                backgroundColor: [
-                    'rgba(30, 91, 79, 0.7)',
-                    'rgba(165, 127, 44, 0.7)'
-                ],
-                borderColor: ['#FFFFFF'],
-                borderWidth: 2
+                label: 'Sesiones', data: data,
+                backgroundColor: ['rgba(30, 91, 79, 0.7)','rgba(165, 127, 44, 0.7)'],
+                borderColor: ['#FFFFFF'], borderWidth: 2
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'top' },
-                title: { display: true, text: 'Sesiones por Tipo del Año Actual' }
-            }
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Sesiones por Tipo del Año Actual' } }
         }
     });
 }
+
 
 // =============================================================
 // =================== MÓDULO DE REPORTERÍA ====================
@@ -1668,74 +1617,30 @@ function initReporteriaModule() {
     
     if (!reportTypeSelect) return;
 
-    // --- Lógica para Reporte de Recomendaciones (Filtros Flexibles) ---
     poblarSelectConOpciones('report-rec-estatus', ['Pendiente', 'En Proceso', 'Completada', 'Cerrada', 'Cancelada'], 'Todos');
     poblarSelectConOpciones('report-rec-prioridad', ['Alta', 'Media', 'Baja'], 'Todas');
     poblarSelectConOpciones('report-rec-tipo', ['Correctiva', 'Preventiva', 'De Mejora Continua'], 'Todos');
-    
     poblarSelectConAPI('/api/responsables', 'report-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
     poblarSelectConAPI('/api/instituciones', 'report-rec-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
-    poblarOrganosColegiados(null, 'report-rec-organo', null, true);
+    poblarSelectConAPI('/api/organos-colegiados', 'report-rec-organo', 'id_organo_colegiado', 'nombre_organo', 'Todos', true);
 
-    document.getElementById('report-rec-responsable')?.addEventListener('change', (e) => {
-        const responsableId = e.target.value;
-        const url = responsableId ? `/api/instituciones?responsable_id=${responsableId}` : '/api/instituciones';
-        poblarSelectConAPI(url, 'report-rec-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
-        poblarOrganosColegiados(null, 'report-rec-organo', null, true);
-    });
-
-    document.getElementById('report-rec-institucion')?.addEventListener('change', (e) => {
-        const institucionId = e.target.value;
-        poblarOrganosColegiados(institucionId, 'report-rec-organo', null, true);
-    });
-
-    // --- Lógica para Reporte de Sesiones (Filtros Flexibles) ---
     const añoSelectSes = document.getElementById('report-ses-año');
     añoSelectSes.innerHTML = '<option value="">Todos</option>';
     for (let i = 2030; i >= 2024; i--) { añoSelectSes.add(new Option(i, i)); }
-    poblarSelectConAPI('/api/responsables', 'report-ses-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
-    poblarSelectConAPI('/api/instituciones', 'report-ses-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
-    poblarOrganosColegiados(null, 'report-ses-organo', null, true);
     poblarSelectConOpciones('report-ses-tipo', ['Ordinaria', 'Extraordinaria'], 'Todos');
     poblarSelectConOpciones('report-ses-estatus', ['Programada', 'Realizada'], 'Todos');
-    
-    document.getElementById('report-ses-responsable')?.addEventListener('change', (e) => {
-        const responsableId = e.target.value;
-        const url = responsableId ? `/api/instituciones?responsable_id=${responsableId}` : '/api/instituciones';
-        poblarSelectConAPI(url, 'report-ses-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
-        poblarOrganosColegiados(null, 'report-ses-organo', null, true);
-    });
+    poblarSelectConAPI('/api/responsables', 'report-ses-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    poblarSelectConAPI('/api/instituciones', 'report-ses-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
+    poblarSelectConAPI('/api/organos-colegiados', 'report-ses-organo', 'id_organo_colegiado', 'nombre_organo', 'Todos', true);
 
-    document.getElementById('report-ses-institucion')?.addEventListener('change', (e) => {
-        const institucionId = e.target.value;
-        poblarOrganosColegiados(institucionId, 'report-ses-organo', null, true);
-    });
-
-
-    // --- Lógica para Reporte de Informes (Filtros Flexibles) ---
     const añoSelectInf = document.getElementById('report-inf-periodo');
     añoSelectInf.innerHTML = '<option value="">Todos</option>';
     for (let i = 2030; i >= 2024; i--) { añoSelectInf.add(new Option(i, i)); }
     poblarSelectConOpciones('report-inf-tipo', ['Informe de Autoevaluación', 'Informe de Estados Financieros', 'RAAD'], 'Todos');
-    
     poblarSelectConAPI('/api/responsables', 'report-inf-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
-    poblarSelectConAPI('/api/instituciones', 'report-inf-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
-    poblarOrganosColegiados(null, 'report-inf-organo', null, true);
+    poblarSelectConAPI('/api/instituciones', 'report-inf-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
+    poblarSelectConAPI('/api/organos-colegiados', 'report-inf-organo', 'id_organo_colegiado', 'nombre_organo', 'Todos', true);
 
-    document.getElementById('report-inf-responsable')?.addEventListener('change', (e) => {
-        const responsableId = e.target.value;
-        const url = responsableId ? `/api/instituciones?responsable_id=${responsableId}` : '/api/instituciones';
-        poblarSelectConAPI(url, 'report-inf-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
-        poblarOrganosColegiados(null, 'report-inf-organo', null, true);
-    });
-
-    document.getElementById('report-inf-institucion')?.addEventListener('change', (e) => {
-        const institucionId = e.target.value;
-        poblarOrganosColegiados(institucionId, 'report-inf-organo', null, true);
-    });
-
-
-    // --- Lógica Principal de Selección de Reporte ---
     reportTypeSelect.addEventListener('change', () => {
         const selectedType = reportTypeSelect.value;
         document.querySelectorAll('.report-filters').forEach(panel => panel.classList.add('hidden'));
@@ -1811,16 +1716,10 @@ async function generarReporteRecomendaciones() {
         
         reporteActualData = data;
         const headerMap = {
-            'id_recomendacion': 'ID',
-            'institucion': 'Institución',
-            'nombre_organo': 'Órgano Colegiado',
-            'descripcion': 'Descripción',
-            'area_responsable_atencion': 'Área Responsable',
-            'fecha_emision': 'Fecha Emisión',
-            'fecha_compromiso': 'Fecha Compromiso',
-            'estatus': 'Estatus',
-            'prioridad': 'Prioridad',
-            'tipo_recomendacion': 'Tipo'
+            'id_recomendacion': 'ID', 'institucion': 'Institución', 'nombre_organo': 'Órgano Colegiado',
+            'descripcion': 'Descripción', 'area_responsable_atencion': 'Área Responsable',
+            'fecha_emision': 'Fecha Emisión', 'fecha_compromiso': 'Fecha Compromiso',
+            'estatus': 'Estatus', 'prioridad': 'Prioridad', 'tipo_recomendacion': 'Tipo'
         };
         renderTablaReporte(data, headerMap);
         exportBtn.disabled = data.length === 0;
@@ -1873,14 +1772,9 @@ async function generarReporteSesiones() {
         reporteActualData = data;
         
         const headerMap = {
-            'año': 'Año',
-            'responsable': 'Responsable',
-            'institucion': 'Institución',
-            'organo_colegiado': 'Órgano Colegiado',
-            'tipo_sesion': 'Tipo de Sesión',
-            'numero_ordinal': 'Nº Sesión',
-            'estatus': 'Estatus',
-            'oficio': 'Nº de Oficio',
+            'año': 'Año', 'responsable': 'Responsable', 'institucion': 'Institución',
+            'organo_colegiado': 'Órgano Colegiado', 'tipo_sesion': 'Tipo de Sesión',
+            'numero_ordinal': 'Nº Sesión', 'estatus': 'Estatus', 'oficio': 'Nº de Oficio',
             'fecha_real': 'Fecha Realizada'
         };
         
@@ -1929,16 +1823,10 @@ async function generarReporteInformes() {
         reporteActualData = data;
         
         const headerMap = {
-            'id_informe': 'ID',
-            'nombre_responsable': 'Responsable',
-            'institucion': 'Institución',
-            'nombre_organo': 'Órgano Colegiado',
-            'tipo_informe': 'Tipo de Informe',
-            'periodo': 'Periodo',
-            'fecha_informe': 'Fecha de Informe',
-            'descripcion': 'Descripción',
-            'recomendaciones_emitidas': 'Rec. Emitidas',
-            'recomendaciones_atendidas': 'Rec. Atendidas'
+            'id_informe': 'ID', 'nombre_responsable': 'Responsable', 'institucion': 'Institución',
+            'nombre_organo': 'Órgano Colegiado', 'tipo_informe': 'Tipo de Informe', 'periodo': 'Periodo',
+            'fecha_informe': 'Fecha de Informe', 'descripcion': 'Descripción',
+            'recomendaciones_emitidas': 'Rec. Emitidas', 'recomendaciones_atendidas': 'Rec. Atendidas'
         };
         
         renderTablaReporte(data, headerMap);
@@ -1963,7 +1851,6 @@ function renderTablaReporte(data, headerMap) {
     const thead = document.createElement('thead');
     const tbody = document.createElement('tbody');
     
-    // Crear cabeceras de la tabla
     const headers = Object.keys(data[0]);
     const headerRow = document.createElement('tr');
     
@@ -1974,7 +1861,6 @@ function renderTablaReporte(data, headerMap) {
     });
     thead.appendChild(headerRow);
 
-    // Llenar filas de la tabla
     data.forEach(rowData => {
         const tr = document.createElement('tr');
         headers.forEach(header => {
@@ -2016,7 +1902,6 @@ function exportarReporteExcel() {
         sheetName = "Informes";
     }
     
-    // Formatear fechas en los datos antes de exportar
     const dataParaExportar = reporteActualData.map(row => {
         const newRow = {...row};
         for (const key in newRow) {
