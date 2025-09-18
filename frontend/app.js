@@ -52,8 +52,8 @@ function showNotification(message, type = 'success') {
     container.appendChild(notification);
     setTimeout(() => {
         notification.style.animation = 'fadeOut 0.5s forwards';
-        setTimeout(() => notification.remove(), 5000);
-    }, 5000);
+        setTimeout(() => notification.remove(), 500);
+    }, 4500);
 }
 
 function initAllModals() {
@@ -139,6 +139,7 @@ function initAllFormValidations() {
 
 
 async function fetchAPI(url, options = {}) {
+    // Esta función ahora asume que las URLs son rutas relativas correctas (ej: /api/endpoint)
     if (!(options.body instanceof FormData)) {
         options.headers = { 'Content-Type': 'application/json', ...options.headers };
         if (options.body) {
@@ -287,7 +288,7 @@ async function resetSesionesView() {
 
     const filtroResponsable = document.getElementById('filtro-responsable');
     if (filtroResponsable) {
-        await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-responsable', 'id_responsable', 'nombre_responsable', 'Seleccione un responsable...');
+        await poblarSelectConAPI('/api/responsables', 'filtro-responsable', 'id_responsable', 'nombre_responsable', 'Seleccione un responsable...');
         filtroResponsable.value = '';
     }
     const selectInstitucion = document.getElementById('filtro-institucion');
@@ -311,13 +312,15 @@ async function poblarInstituciones(responsableId, institucionSelectId, organoSel
             selectOrgano.disabled = true;
         }
     }
-    if (!responsableId) { 
-        if (callbackFn) callbackFn();
-        return; 
+    
+    let url = '/api/instituciones';
+    if (responsableId) {
+        url += `?responsable_id=${responsableId}`;
     }
+
     try {
         selectInstitucion.innerHTML = '<option value="">Cargando...</option>';
-        await poblarSelectConAPI(`http://localhost:5001/api/instituciones?responsable_id=${responsableId}`, institucionSelectId, 'id_institucion', 'nombre_institucion', 'Todos');
+        await poblarSelectConAPI(url, institucionSelectId, 'id_institucion', 'nombre_institucion', 'Todos');
         selectInstitucion.disabled = false;
         if (callbackFn) callbackFn();
     } catch (error) { console.error("Fallo en poblarInstituciones:", error); }
@@ -329,9 +332,10 @@ async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn
     selectOrgano.innerHTML = '<option value="">Todos</option>';
     selectOrgano.disabled = true;
     
-    const url = institucionId 
-        ? `http://localhost:5001/api/organos-colegiados?institucion_id=${institucionId}`
-        : 'http://localhost:5001/api/organos-colegiados';
+    let url = '/api/organos-colegiados';
+    if (institucionId) {
+        url += `?institucion_id=${institucionId}`;
+    }
 
     try {
         selectOrgano.innerHTML = '<option value="">Cargando...</option>';
@@ -356,7 +360,7 @@ async function buscarCalendario() {
     }
     try {
         container.innerHTML = '<p>Cargando calendario...</p>';
-        const calendario = await fetchAPI(`http://localhost:5001/api/calendario-sesiones?año=${año}&institucion_id=${institucionId}&organo_id=${organoId}`);
+        const calendario = await fetchAPI(`/api/calendario-sesiones?año=${año}&institucion_id=${institucionId}&organo_id=${organoId}`);
         renderCalendario(calendario);
     } catch (error) { console.error('Error al buscar calendario:', error); }
 }
@@ -431,12 +435,12 @@ async function abrirModalDetalleSesion(idCalendario) {
 
     const evidenciasList = document.getElementById('sesion-evidencias-list');
     try {
-        const evidencias = await fetchAPI(`http://localhost:5001/api/evidencias?parent_type=sesion&parent_id=${sesion.id_ejecucion}`);
+        const evidencias = await fetchAPI(`/api/evidencias?parent_type=sesion&parent_id=${sesion.id_ejecucion}`);
         if (evidencias && evidencias.length > 0) {
             evidenciasList.innerHTML = '';
             evidencias.forEach(ev => {
                 const li = document.createElement('li');
-                li.innerHTML = `<a href="http://localhost:5001/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
+                li.innerHTML = `<a href="/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
                 evidenciasList.appendChild(li);
             });
         } else {
@@ -504,15 +508,15 @@ async function handleEjecucionSubmit(event) {
     let successMessage;
 
     if (idEjecucion) {
-        url = `http://localhost:5001/api/ejecucion-sesiones/${idEjecucion}`;
+        url = `/api/ejecucion-sesiones/${idEjecucion}`;
         method = 'PUT';
         successMessage = 'Ejecución actualizada exitosamente.';
     } else if (idCalendario) {
-        url = 'http://localhost:5001/api/ejecucion-sesiones';
+        url = '/api/ejecucion-sesiones';
         method = 'POST';
         successMessage = 'Ejecución registrada exitosamente.';
     } else {
-        url = 'http://localhost:5001/api/sesiones-extraordinarias';
+        url = '/api/sesiones-extraordinarias';
         method = 'POST';
         successMessage = 'Sesión extraordinaria registrada exitosamente.';
         formData.append('año', document.getElementById('filtro-año').value);
@@ -531,7 +535,7 @@ async function handleEjecucionSubmit(event) {
             }
             fileFormData.append('parent_type', 'sesion');
             fileFormData.append('parent_id', newEjecucionId);
-            await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: fileFormData });
+            await fetchAPI('/api/upload', { method: 'POST', body: fileFormData });
         }
         
         form.reset();
@@ -616,7 +620,7 @@ async function poblarFiltrosInformes() {
         for (let i = 2030; i >= 2024; i--) {
             periodoSelect.add(new Option(i, i));
         }
-        await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-informe-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+        await poblarSelectConAPI('/api/responsables', 'filtro-informe-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
         
         document.getElementById('filtro-informe-institucion').innerHTML = '<option value="">Todos</option>';
         document.getElementById('filtro-informe-institucion').disabled = true;
@@ -632,11 +636,16 @@ async function cargarInformes() {
     const institucionId = document.getElementById('filtro-informe-institucion').value;
     const organoId = document.getElementById('filtro-informe-organo').value;
 
-    let url = new URL('http://localhost:5001/api/informes');
-    if (periodo) url.searchParams.append('periodo', periodo);
-    if (responsableId) url.searchParams.append('responsable_id', responsableId);
-    if (institucionId) url.searchParams.append('institucion_id', institucionId);
-    if (organoId) url.searchParams.append('organo_id', organoId);
+    // --- INICIO DE CORRECCIÓN ---
+    const params = new URLSearchParams();
+    if (periodo) params.append('periodo', periodo);
+    if (responsableId) params.append('responsable_id', responsableId);
+    if (institucionId) params.append('institucion_id', institucionId);
+    if (organoId) params.append('organo_id', organoId);
+    
+    const queryString = params.toString();
+    const url = `/api/informes${queryString ? `?${queryString}` : ''}`;
+    // --- FIN DE CORRECCIÓN ---
 
     try {
         const informes = await fetchAPI(url);
@@ -672,7 +681,10 @@ async function cargarInformes() {
                 tbody.appendChild(tr);
             });
         }
-    } catch (error) { console.error("Error al cargar informes:", error); }
+    } catch (error) { 
+        console.error("Error al cargar informes:", error);
+        showNotification("Error al cargar los datos de informes.", 'error');
+    }
 }
 
 async function handleNuevoInformeClick() { 
@@ -687,7 +699,7 @@ async function handleNuevoInformeClick() {
     document.getElementById('organo-select-informe').disabled = true;
     
     try {
-        await poblarSelectConAPI('http://localhost:5001/api/responsables', 'responsable-select-informe', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+        await poblarSelectConAPI('/api/responsables', 'responsable-select-informe', 'id_responsable', 'nombre_responsable', 'Seleccione...');
         
         const periodoSelect = document.getElementById('periodo-select');
         const añoActual = new Date().getFullYear();
@@ -714,7 +726,7 @@ async function handleInformeFormSubmit(event) {
 
     const informeId = formData.get('id_informe');
     const method = informeId ? 'PUT' : 'POST';
-    const url = informeId ? `http://localhost:5001/api/informes/${informeId}` : 'http://localhost:5001/api/informes';
+    const url = informeId ? `/api/informes/${informeId}` : '/api/informes';
     
     try {
         const response = await fetchAPI(url, { method, body: formData });
@@ -727,7 +739,7 @@ async function handleInformeFormSubmit(event) {
             }
             fileFormData.append('parent_type', 'informe');
             fileFormData.append('parent_id', newInformeId);
-            await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: fileFormData });
+            await fetchAPI('/api/upload', { method: 'POST', body: fileFormData });
         }
 
         form.reset();
@@ -790,7 +802,7 @@ async function handleDeleteInforme(informeId) {
         '¿Estás seguro de que deseas eliminar este informe y todas sus recomendaciones asociadas? Esta acción no se puede deshacer.',
         async () => {
             try {
-                await fetchAPI(`http://localhost:5001/api/informes/${informeId}`, { method: 'DELETE' });
+                await fetchAPI(`/api/informes/${informeId}`, { method: 'DELETE' });
                 showNotification('Informe eliminado.');
                 cargarInformes();
             } catch (error) { 
@@ -806,8 +818,8 @@ async function cargarVistaDeDetalle(informeId) {
     currentView = 'informes';
     try {
         const [informe, evidencias] = await Promise.all([
-            fetchAPI(`http://localhost:5001/api/informes/${informeId}`),
-            fetchAPI(`http://localhost:5001/api/evidencias?parent_type=informe&parent_id=${informeId}`)
+            fetchAPI(`/api/informes/${informeId}`),
+            fetchAPI(`/api/evidencias?parent_type=informe&parent_id=${informeId}`)
         ]);
         currentInformeData[informeId] = { ...currentInformeData[informeId], ...informe };
         document.getElementById('informe-detalle-header').innerHTML = `
@@ -823,13 +835,13 @@ async function cargarVistaDeDetalle(informeId) {
         if (evidencias.length > 0) {
             evidencias.forEach(ev => {
                 const li = document.createElement('li');
-                li.innerHTML = `<a href="http://localhost:5001/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
+                li.innerHTML = `<a href="/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
                 evidenciasList.appendChild(li);
             });
         } else {
             evidenciasList.innerHTML = '<li>No hay documentos de soporte.</li>';
         }
-        const recomendaciones = await fetchAPI(`http://localhost:5001/api/recomendaciones?informe_id=${informeId}`);
+        const recomendaciones = await fetchAPI(`/api/recomendaciones?informe_id=${informeId}`);
         renderRecomendaciones(recomendaciones, 'recomendaciones-informe-tbody');
         showReportesDetailView();
     } catch (error) { console.error("Error al cargar vista de detalle:", error); }
@@ -897,7 +909,7 @@ async function handleNuevaRecomendacionClick({ informe = null }) {
         independentFieldsDiv.classList.remove('hidden');
         independentSelects.forEach(sel => sel.required = true);
         hiddenInformeId.value = '';
-        await poblarSelectConAPI('http://localhost:5001/api/responsables', 'rec-responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+        await poblarSelectConAPI('/api/responsables', 'rec-responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
         document.getElementById('rec-institucion-select').innerHTML = '<option value="">Seleccione responsable...</option>';
         document.getElementById('rec-organo-select').innerHTML = '<option value="">Seleccione institución...</option>';
     }
@@ -927,7 +939,7 @@ async function handleRecomendacionFormSubmit(event) {
 
     const recId = formData.get('id_recomendacion');
     const method = recId ? 'PUT' : 'POST';
-    const url = recId ? `http://localhost:5001/api/recomendaciones/${recId}` : 'http://localhost:5001/api/recomendaciones';
+    const url = recId ? `/api/recomendaciones/${recId}` : '/api/recomendaciones';
 
     try {
         const response = await fetchAPI(url, { method, body: formData });
@@ -940,7 +952,7 @@ async function handleRecomendacionFormSubmit(event) {
             }
             fileFormData.append('parent_type', 'recomendacion');
             fileFormData.append('parent_id', newRecId);
-            await fetchAPI('http://localhost:5001/api/upload', { method: 'POST', body: fileFormData });
+            await fetchAPI('/api/upload', { method: 'POST', body: fileFormData });
         }
 
         form.reset();
@@ -1004,12 +1016,12 @@ async function abrirModalDetalleRecomendacion(recId) {
 
     const evidenciaList = document.getElementById('rec-detalle-evidencia-list');
     try {
-        const evidencias = await fetchAPI(`http://localhost:5001/api/evidencias?parent_type=recomendacion&parent_id=${recId}`);
+        const evidencias = await fetchAPI(`/api/evidencias?parent_type=recomendacion&parent_id=${recId}`);
         if (evidencias.length > 0) {
             evidenciaList.innerHTML = '';
             evidencias.forEach(ev => {
                 const li = document.createElement('li');
-                li.innerHTML = `<a href="http://localhost:5001/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
+                li.innerHTML = `<a href="/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
                 evidenciaList.appendChild(li);
             });
         } else {
@@ -1077,7 +1089,7 @@ async function handleDeleteRecomendacion(recId) {
         '¿Estás seguro de que deseas eliminar esta recomendación?',
         async () => {
             try {
-                await fetchAPI(`http://localhost:5001/api/recomendaciones/${recId}`, { method: 'DELETE' });
+                await fetchAPI(`/api/recomendaciones/${recId}`, { method: 'DELETE' });
                 showNotification('Recomendación eliminada.');
                 if (currentView === 'informes') {
                     cargarVistaDeDetalle(currentInformeId);
@@ -1125,7 +1137,7 @@ async function resetRecomendacionesView() {
         añoSelect.value = ""; 
     }
 
-    await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    await poblarSelectConAPI('/api/responsables', 'filtro-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
     const instSelect = document.getElementById('filtro-rec-institucion');
     instSelect.innerHTML = '<option value="">Todos</option>';
     instSelect.disabled = true;
@@ -1152,11 +1164,16 @@ async function cargarRecomendacionesIndependientes() {
     
     tbody.innerHTML = `<tr><td colspan="11">Cargando...</td></tr>`;
 
-    let url = new URL('http://localhost:5001/api/recomendaciones');
-    if (año) url.searchParams.append('año', año);
-    if (responsableId) url.searchParams.append('responsable_id', responsableId);
-    if (institucionId) url.searchParams.append('institucion_id', institucionId);
-    if (organoId) url.searchParams.append('organo_id', organoId);
+    // --- INICIO DE CORRECCIÓN ---
+    const params = new URLSearchParams();
+    if (año) params.append('año', año);
+    if (responsableId) params.append('responsable_id', responsableId);
+    if (institucionId) params.append('institucion_id', institucionId);
+    if (organoId) params.append('organo_id', organoId);
+
+    const queryString = params.toString();
+    const url = `/api/recomendaciones${queryString ? `?${queryString}` : ''}`;
+    // --- FIN DE CORRECCIÓN ---
     
     try {
         const recomendaciones = await fetchAPI(url);
@@ -1164,6 +1181,7 @@ async function cargarRecomendacionesIndependientes() {
     } catch (error) {
         console.error("Error al cargar recomendaciones independientes:", error);
         tbody.innerHTML = '<tr><td colspan="11">Error al cargar datos.</td></tr>';
+        showNotification("Error al cargar los datos de recomendaciones.", 'error');
     }
 }
 
@@ -1186,7 +1204,7 @@ function initDirectorioModule() {
 }
 
 async function resetDirectorioView() {
-    await poblarSelectConAPI('http://localhost:5001/api/responsables', 'filtro-dir-responsable', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+    await poblarSelectConAPI('/api/responsables', 'filtro-dir-responsable', 'id_responsable', 'nombre_responsable', 'Seleccione...');
     const instSelect = document.getElementById('filtro-dir-institucion');
     instSelect.innerHTML = '<option value="">Seleccione responsable...</option>';
     instSelect.disabled = true;
@@ -1211,7 +1229,7 @@ async function cargarContactos() {
 
     tbody.innerHTML = '<tr><td colspan="6">Cargando...</td></tr>';
     try {
-        let url = `http://localhost:5001/api/directorio?institucion_id=${institucionId}`;
+        let url = `/api/directorio?institucion_id=${institucionId}`;
         if (organoId) {
             url += `&organo_id=${organoId}`;
         }
@@ -1258,7 +1276,7 @@ async function handleNuevoContactoClick() {
     document.getElementById('dir-creation-fields').classList.remove('hidden');
     form.querySelectorAll('#dir-creation-fields select').forEach(sel => sel.required = true);
     
-    await poblarSelectConAPI('http://localhost:5001/api/responsables', 'dir-responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+    await poblarSelectConAPI('/api/responsables', 'dir-responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
     document.getElementById('dir-institucion-select').innerHTML = '<option value="">Seleccione responsable...</option>';
     document.getElementById('dir-institucion-select').disabled = true;
     document.getElementById('dir-organo-select').innerHTML = '<option value="">Seleccione institución...</option>';
@@ -1275,7 +1293,7 @@ async function handleDirectorioFormSubmit(event) {
     
     const contactoId = formData.get('id_contacto');
     const method = contactoId ? 'PUT' : 'POST';
-    const url = contactoId ? `http://localhost:5001/api/directorio/${contactoId}` : 'http://localhost:5001/api/directorio';
+    const url = contactoId ? `/api/directorio/${contactoId}` : '/api/directorio';
 
     if (contactoId) {
         const contacto = directorioData[contactoId];
@@ -1333,7 +1351,7 @@ function handleEditContacto(contactoId) {
 function handleDeleteContacto(contactoId) {
     showConfirmModal('Confirmar Eliminación', '¿Está seguro de que desea eliminar este contacto?', async () => {
         try {
-            await fetchAPI(`http://localhost:5001/api/directorio/${contactoId}`, { method: 'DELETE' });
+            await fetchAPI(`/api/directorio/${contactoId}`, { method: 'DELETE' });
             showNotification('Contacto eliminado.');
             cargarContactos();
         } catch (error) {
@@ -1349,79 +1367,114 @@ function handleDeleteContacto(contactoId) {
 let recomendacionesChartInstance = null;
 let prioridadChartInstance = null;
 let tipoChartInstance = null;
+let sesionesTipoChartInstance = null;
+let informesTipoChartInstance = null;
+let recEmitidasChartInstance = null;
+let recAtendidasChartInstance = null;
+
 
 function initDashboardModule() {
-    // Función de inicialización para futuros listeners del dashboard.
+    // La carga inicial se hace al hacer clic en la pestaña de navegación
 }
 
 async function cargarDatosDashboard() {
-    const kpiContainerVencidas = document.getElementById('dashboard-kpi-vencidas');
-    const kpiContainerAntiguedad = document.getElementById('dashboard-kpi-antiguedad');
-    const kpiContainerSesiones = document.getElementById('dashboard-kpi-sesiones');
-    const topTbody = document.getElementById('dashboard-top-instituciones-tbody');
-    
-    // Mostrar estado de carga inicial
-    kpiContainerVencidas.innerHTML = '<p>Cargando...</p>';
-    kpiContainerAntiguedad.innerHTML = '<p>Cargando...</p>';
-    kpiContainerSesiones.innerHTML = '<p>Cargando...</p>';
-    topTbody.innerHTML = '<tr><td colspan="2">Cargando...</td></tr>';
+    const containers = {
+        vencidas: document.getElementById('dashboard-kpi-vencidas'),
+        antiguedad: document.getElementById('dashboard-kpi-antiguedad'),
+        sesiones: document.getElementById('dashboard-kpi-sesiones'),
+        topTbody: document.getElementById('dashboard-top-instituciones-tbody'),
+        totalInformes: document.getElementById('dashboard-kpi-total-informes'),
+        totalRecomendaciones: document.getElementById('dashboard-kpi-total-recomendaciones'),
+    };
+
+    Object.values(containers).forEach(container => {
+        if (container) {
+            if (container.tagName === 'TBODY') {
+                container.innerHTML = '<tr><td colspan="2">Cargando...</td></tr>';
+            } else {
+                container.innerHTML = '<p>Cargando...</p>';
+            }
+        }
+    });
     
     try {
-        const data = await fetchAPI('http://localhost:5001/api/dashboard/stats');
+        const data = await fetchAPI('/api/dashboard/stats');
         
-        // Renderizar KPI de Alertas Vencidas
-        kpiContainerVencidas.innerHTML = `
-            <p>Recomendaciones con fecha vencida:</p>
+        // --- Renderizar KPIs y Tablas ---
+        if (containers.vencidas) containers.vencidas.innerHTML = `
+            <p>Recomendaciones Vencidas</p>
             <p class="${data.vencidas_count > 0 ? 'kpi-alert' : 'kpi-number'}">${data.vencidas_count}</p>
         `;
         
-        // Renderizar KPI de Tiempo Promedio de Atención
-        kpiContainerAntiguedad.innerHTML = `
-            <p>Promedio de días sin resolver:</p>
+        if (containers.antiguedad) containers.antiguedad.innerHTML = `
+            <p>Antigüedad Promedio (Pendientes)</p>
             <p class="kpi-number">${data.antiguedad_promedio}</p>
-            <p>días por recomendación pendiente</p>
+            <p>días</p>
         `;
 
-        // Renderizar KPI de Sesiones
-        kpiContainerSesiones.innerHTML = `
-            <p><strong>${data.sesiones_stats.realizadas}</strong> de <strong>${data.sesiones_stats.total_programadas}</strong> Sesiones Realizadas</p>
+        if (containers.sesiones) containers.sesiones.innerHTML = `
+            <p><strong>${data.sesiones_stats.realizadas}</strong> de <strong>${data.sesiones_stats.total_programadas}</strong> realizadas</p>
             <p class="kpi-number">${data.sesiones_stats.cumplimiento_pct}%</p>
-            <p>de Cumplimiento</p>
+            <p>de Cumplimiento Anual</p>
+        `;
+
+        if (containers.totalInformes) containers.totalInformes.innerHTML = `
+             <p>Total General</p>
+             <p class="kpi-number">${data.total_informes}</p>
         `;
         
-        // Renderizar Top 5 Instituciones
-        const { top_instituciones_pendientes } = data;
-        topTbody.innerHTML = '';
-        if (top_instituciones_pendientes.length > 0) {
-            top_instituciones_pendientes.forEach(item => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${item.siglas}</td>
-                    <td>${item.pendientes_count}</td>
-                `;
-                topTbody.appendChild(tr);
-            });
-        } else {
-            topTbody.innerHTML = '<tr><td colspan="2">No hay recomendaciones pendientes.</td></tr>';
+        if (containers.totalRecomendaciones) {
+            const avanceGeneralPct = data.recomendaciones_totales.emitidas > 0
+                ? (data.recomendaciones_totales.atendidas / data.recomendaciones_totales.emitidas) * 100
+                : 0;
+            containers.totalRecomendaciones.innerHTML = `
+                <p><strong>${data.recomendaciones_totales.atendidas}</strong> de <strong>${data.recomendaciones_totales.emitidas}</strong></p>
+                <p class="kpi-number">${avanceGeneralPct.toFixed(1)}%</p>
+                <p>de Avance General</p>
+            `;
+        }
+        
+        if (containers.topTbody) {
+            containers.topTbody.innerHTML = '';
+            if (data.top_instituciones_pendientes.length > 0) {
+                data.top_instituciones_pendientes.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${item.siglas}</td><td>${item.pendientes_count}</td>`;
+                    containers.topTbody.appendChild(tr);
+                });
+            } else {
+                containers.topTbody.innerHTML = '<tr><td colspan="2">No hay pendientes.</td></tr>';
+            }
         }
 
-        // Renderizar Gráficos
+        // --- Renderizar Gráficos ---
         renderRecomendacionesChart(data.recomendaciones_stats);
         renderPrioridadChart(data.prioridad_stats);
-        renderTipoChart(data.tipo_stats);
+        renderTipoChart(data.tipo_stats, 'tipo-chart', 'Análisis por Tipo de Recomendación');
+        renderSesionesTipoChart(data.sesiones_por_tipo);
+        renderTipoChart(data.informes_por_tipo, 'informes-tipo-chart', 'Informes por Tipo', 'tipo_informe');
+        renderTipoChart(data.rec_emitidas_por_tipo_informe, 'rec-emitidas-tipo-informe-chart', 'Recomendaciones Emitidas por Tipo de Informe', 'tipo_informe');
+        renderTipoChart(data.rec_atendidas_por_tipo_informe, 'rec-atendidas-tipo-informe-chart', 'Recomendaciones Atendidas por Tipo de Informe', 'tipo_informe');
+
 
     } catch (error) {
         console.error("Error al cargar datos del dashboard:", error);
         showNotification('No se pudieron cargar los datos del dashboard.', 'error');
-        kpiContainerVencidas.innerHTML = '<p>Error al cargar datos.</p>';
-        kpiContainerAntiguedad.innerHTML = '<p>Error al cargar datos.</p>';
-        kpiContainerSesiones.innerHTML = '<p>Error al cargar datos.</p>';
-        topTbody.innerHTML = '<tr><td colspan="2">Error al cargar datos.</td></tr>';
+        Object.values(containers).forEach(c => { 
+            if(c) { 
+                if (c.tagName === 'TBODY') {
+                    c.innerHTML = '<tr><td colspan="2" style="color:red;">Error</td></tr>';
+                } else {
+                    c.innerHTML = '<p style="color:red;">Error</p>'; 
+                }
+            }
+        });
     }
 }
 
 function renderRecomendacionesChart(stats) {
-    const ctx = document.getElementById('recomendaciones-chart').getContext('2d');
+    const ctx = document.getElementById('recomendaciones-chart')?.getContext('2d');
+    if (!ctx) return;
 
     if (recomendacionesChartInstance) {
         recomendacionesChartInstance.destroy();
@@ -1430,12 +1483,17 @@ function renderRecomendacionesChart(stats) {
     const labels = stats.map(item => item.estatus);
     const data = stats.map(item => item.count);
 
-    const backgroundColors = [ '#1e5b4f', '#a57f2c', '#9b2247', '#6c757d' ];
+    const backgroundColors = [ '#1e5b4f', '#a57f2c', '#9b2247', '#6c757d', '#333333' ];
     const estatusOrden = ['Completada', 'Cerrada', 'Pendiente', 'En Proceso', 'Cancelada'];
-    const chartColors = labels.map(label => {
-        const index = estatusOrden.indexOf(label);
-        return backgroundColors[index % backgroundColors.length];
-    });
+    
+    // Mapeo de colores más robusto
+    const colorMap = {
+        'Completada': backgroundColors[0],
+        'Cerrada': backgroundColors[0], // Mismo color que completada
+        'Pendiente': backgroundColors[2],
+        'En Proceso': backgroundColors[1],
+        'Cancelada': backgroundColors[3]
+    };
 
     recomendacionesChartInstance = new Chart(ctx, {
         type: 'doughnut',
@@ -1444,7 +1502,7 @@ function renderRecomendacionesChart(stats) {
             datasets: [{
                 label: 'Recomendaciones',
                 data: data,
-                backgroundColor: chartColors,
+                backgroundColor: labels.map(label => colorMap[label] || backgroundColors[4]),
                 borderColor: '#fff',
                 borderWidth: 2
             }]
@@ -1461,7 +1519,8 @@ function renderRecomendacionesChart(stats) {
 }
 
 function renderPrioridadChart(stats) {
-    const ctx = document.getElementById('prioridad-chart').getContext('2d');
+    const ctx = document.getElementById('prioridad-chart')?.getContext('2d');
+    if (!ctx) return;
 
     if (prioridadChartInstance) {
         prioridadChartInstance.destroy();
@@ -1506,27 +1565,34 @@ function renderPrioridadChart(stats) {
     });
 }
 
-function renderTipoChart(stats) {
-    const ctx = document.getElementById('tipo-chart').getContext('2d');
+function renderTipoChart(stats, canvasId, titleText, labelField = 'tipo_recomendacion') {
+    const ctx = document.getElementById(canvasId)?.getContext('2d');
+    if (!ctx) return;
 
-    if (tipoChartInstance) {
-        tipoChartInstance.destroy();
+    let chartInstance;
+    if (canvasId === 'tipo-chart') chartInstance = tipoChartInstance;
+    if (canvasId === 'informes-tipo-chart') chartInstance = informesTipoChartInstance;
+    if (canvasId === 'rec-emitidas-tipo-informe-chart') chartInstance = recEmitidasChartInstance;
+    if (canvasId === 'rec-atendidas-tipo-informe-chart') chartInstance = recAtendidasChartInstance;
+
+    if (chartInstance) {
+        chartInstance.destroy();
     }
 
-    const labels = stats.map(item => item.tipo_recomendacion);
+    const labels = stats.map(item => item[labelField]);
     const data = stats.map(item => item.count);
 
-    tipoChartInstance = new Chart(ctx, {
+    chartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: labels,
             datasets: [{
-                label: 'Total de Recomendaciones',
+                label: 'Total',
                 data: data,
                 backgroundColor: [
-                    'rgba(155, 34, 71, 0.7)', // Vino
-                    'rgba(30, 91, 79, 0.7)', // Verde
-                    'rgba(165, 127, 44, 0.7)' // Dorado
+                    'rgba(155, 34, 71, 0.7)', 
+                    'rgba(30, 91, 79, 0.7)', 
+                    'rgba(165, 127, 44, 0.7)'
                 ],
                 borderColor: [
                     'rgb(155, 34, 71)',
@@ -1541,9 +1607,51 @@ function renderTipoChart(stats) {
             maintainAspectRatio: false,
             plugins: {
                 legend: { display: false },
-                title: { display: true, text: 'Total de Recomendaciones por Tipo' }
+                title: { display: true, text: titleText }
             },
-            scales: { y: { beginAtZero: true } }
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+
+    if (canvasId === 'tipo-chart') tipoChartInstance = chartInstance;
+    if (canvasId === 'informes-tipo-chart') informesTipoChartInstance = chartInstance;
+    if (canvasId === 'rec-emitidas-tipo-informe-chart') recEmitidasChartInstance = chartInstance;
+    if (canvasId === 'rec-atendidas-tipo-informe-chart') recAtendidasChartInstance = chartInstance;
+}
+
+function renderSesionesTipoChart(stats) {
+    const ctx = document.getElementById('sesiones-tipo-chart')?.getContext('2d');
+    if (!ctx) return;
+    
+    if (sesionesTipoChartInstance) {
+        sesionesTipoChartInstance.destroy();
+    }
+
+    const labels = stats.map(item => item.tipo_sesion);
+    const data = stats.map(item => item.count);
+
+    sesionesTipoChartInstance = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Sesiones',
+                data: data,
+                backgroundColor: [
+                    'rgba(30, 91, 79, 0.7)',
+                    'rgba(165, 127, 44, 0.7)'
+                ],
+                borderColor: ['#FFFFFF'],
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' },
+                title: { display: true, text: 'Sesiones por Tipo del Año Actual' }
+            }
         }
     });
 }
@@ -1565,13 +1673,13 @@ function initReporteriaModule() {
     poblarSelectConOpciones('report-rec-prioridad', ['Alta', 'Media', 'Baja'], 'Todas');
     poblarSelectConOpciones('report-rec-tipo', ['Correctiva', 'Preventiva', 'De Mejora Continua'], 'Todos');
     
-    poblarSelectConAPI('http://localhost:5001/api/responsables', 'report-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
-    poblarSelectConAPI('http://localhost:5001/api/instituciones', 'report-rec-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
+    poblarSelectConAPI('/api/responsables', 'report-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    poblarSelectConAPI('/api/instituciones', 'report-rec-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
     poblarOrganosColegiados(null, 'report-rec-organo', null, true);
 
     document.getElementById('report-rec-responsable')?.addEventListener('change', (e) => {
         const responsableId = e.target.value;
-        const url = responsableId ? `http://localhost:5001/api/instituciones?responsable_id=${responsableId}` : 'http://localhost:5001/api/instituciones';
+        const url = responsableId ? `/api/instituciones?responsable_id=${responsableId}` : '/api/instituciones';
         poblarSelectConAPI(url, 'report-rec-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
         poblarOrganosColegiados(null, 'report-rec-organo', null, true);
     });
@@ -1585,15 +1693,15 @@ function initReporteriaModule() {
     const añoSelectSes = document.getElementById('report-ses-año');
     añoSelectSes.innerHTML = '<option value="">Todos</option>';
     for (let i = 2030; i >= 2024; i--) { añoSelectSes.add(new Option(i, i)); }
-    poblarSelectConAPI('http://localhost:5001/api/responsables', 'report-ses-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
-    poblarSelectConAPI('http://localhost:5001/api/instituciones', 'report-ses-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
+    poblarSelectConAPI('/api/responsables', 'report-ses-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    poblarSelectConAPI('/api/instituciones', 'report-ses-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
     poblarOrganosColegiados(null, 'report-ses-organo', null, true);
     poblarSelectConOpciones('report-ses-tipo', ['Ordinaria', 'Extraordinaria'], 'Todos');
     poblarSelectConOpciones('report-ses-estatus', ['Programada', 'Realizada'], 'Todos');
     
     document.getElementById('report-ses-responsable')?.addEventListener('change', (e) => {
         const responsableId = e.target.value;
-        const url = responsableId ? `http://localhost:5001/api/instituciones?responsable_id=${responsableId}` : 'http://localhost:5001/api/instituciones';
+        const url = responsableId ? `/api/instituciones?responsable_id=${responsableId}` : '/api/instituciones';
         poblarSelectConAPI(url, 'report-ses-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
         poblarOrganosColegiados(null, 'report-ses-organo', null, true);
     });
@@ -1610,13 +1718,13 @@ function initReporteriaModule() {
     for (let i = 2030; i >= 2024; i--) { añoSelectInf.add(new Option(i, i)); }
     poblarSelectConOpciones('report-inf-tipo', ['Informe de Autoevaluación', 'Informe de Estados Financieros', 'RAAD'], 'Todos');
     
-    poblarSelectConAPI('http://localhost:5001/api/responsables', 'report-inf-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
-    poblarSelectConAPI('http://localhost:5001/api/instituciones', 'report-inf-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
+    poblarSelectConAPI('/api/responsables', 'report-inf-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    poblarSelectConAPI('/api/instituciones', 'report-inf-institucion', 'id_institucion', 'nombre_institucion', 'Todas');
     poblarOrganosColegiados(null, 'report-inf-organo', null, true);
 
     document.getElementById('report-inf-responsable')?.addEventListener('change', (e) => {
         const responsableId = e.target.value;
-        const url = responsableId ? `http://localhost:5001/api/instituciones?responsable_id=${responsableId}` : 'http://localhost:5001/api/instituciones';
+        const url = responsableId ? `/api/instituciones?responsable_id=${responsableId}` : '/api/instituciones';
         poblarSelectConAPI(url, 'report-inf-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
         poblarOrganosColegiados(null, 'report-inf-organo', null, true);
     });
@@ -1696,7 +1804,7 @@ async function generarReporteRecomendaciones() {
     const filters = recogerFiltrosRecomendaciones();
 
     try {
-        const data = await fetchAPI('http://localhost:5001/api/reportes/recomendaciones', {
+        const data = await fetchAPI('/api/reportes/recomendaciones', {
             method: 'POST',
             body: filters
         });
@@ -1757,7 +1865,7 @@ async function generarReporteSesiones() {
     const filters = recogerFiltrosSesiones();
 
     try {
-        const data = await fetchAPI('http://localhost:5001/api/reportes/sesiones', {
+        const data = await fetchAPI('/api/reportes/sesiones', {
             method: 'POST',
             body: filters
         });
@@ -1813,7 +1921,7 @@ async function generarReporteInformes() {
     const filters = recogerFiltrosInformes();
 
     try {
-        const data = await fetchAPI('http://localhost:5001/api/reportes/informes', {
+        const data = await fetchAPI('/api/reportes/informes', {
             method: 'POST',
             body: filters
         });

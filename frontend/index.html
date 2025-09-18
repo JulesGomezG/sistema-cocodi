@@ -14,8 +14,8 @@
         :root {
             --color-gob-vino-oscuro: #611232; /* PANTONE 7421 C */
             --color-gob-vino-claro: #9b2247;  /* PANTONE 7420 C */
-            --color-gob-verde: #1e5b4f;      /* PANTONE 626 C */
-            --color-gob-dorado: #a57f2c;     /* PANTONE 1255 C */
+            --color-gob-verde: #1e5b4f;       /* PANTONE 626 C */
+            --color-gob-dorado: #a57f2c;      /* PANTONE 1255 C */
             --color-gob-gris: #333333;
             --color-gob-fondo: #f4f7f9;
             --color-danger: #dc3545;
@@ -257,8 +257,8 @@
         
         .dashboard-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 2em;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5em;
             margin-top: 2em;
         }
         .dashboard-widget {
@@ -272,21 +272,26 @@
         }
         .chart-container {
             position: relative;
-            height: 300px;
+            height: 250px; /* Altura ajustada para los gráficos */
         }
         .kpi-container {
             text-align: center;
-            font-size: 1.2em;
+            font-size: 1em;
         }
         .kpi-container .kpi-number {
-            font-size: 2.5em;
+            font-size: 2.2em;
             font-weight: bold;
             color: var(--color-gob-vino-oscuro);
+            margin: 0.2em 0;
         }
         .kpi-container .kpi-alert {
-            font-size: 2.5em;
+            font-size: 2.2em;
             font-weight: bold;
             color: var(--color-danger);
+            margin: 0.2em 0;
+        }
+        .kpi-container p {
+            margin: 0.3em 0;
         }
 
     </style>
@@ -421,62 +426,68 @@
             <div class="dashboard-grid">
                 
                 <div class="dashboard-widget">
-                    <h2>Alertas de Incumplimiento</h2>
-                    <div id="dashboard-kpi-vencidas" class="kpi-container">
-                        <p>Cargando...</p>
-                    </div>
-                </div>
-
-                <div class="dashboard-widget">
-                    <h2>Tiempo Promedio de Atención</h2>
-                    <div id="dashboard-kpi-antiguedad" class="kpi-container">
-                        <p>Cargando...</p>
-                    </div>
-                </div>
-    
-                <div class="dashboard-widget">
                     <h2>Sesiones del Año Actual</h2>
-                    <div id="dashboard-kpi-sesiones" class="kpi-container">
-                        <p>Cargando...</p>
-                    </div>
+                    <div id="dashboard-kpi-sesiones" class="kpi-container"><p>Cargando...</p></div>
+                </div>
+                <div class="dashboard-widget">
+                    <h2>Total Informes Emitidos</h2>
+                    <div id="dashboard-kpi-total-informes" class="kpi-container"><p>Cargando...</p></div>
+                </div>
+                <div class="dashboard-widget">
+                    <h2>Total Recomendaciones</h2>
+                    <div id="dashboard-kpi-total-recomendaciones" class="kpi-container"><p>Cargando...</p></div>
+                </div>
+                <div class="dashboard-widget">
+                    <h2>Alertas de Incumplimiento</h2>
+                    <div id="dashboard-kpi-vencidas" class="kpi-container"><p>Cargando...</p></div>
                 </div>
 
                 <div class="dashboard-widget">
-                    <h2>Top 5 Instituciones con más Pendientes</h2>
+                    <h2>Sesiones por tipo del Año Actual</h2>
+                    <div class="chart-container">
+                        <canvas id="sesiones-tipo-chart"></canvas>
+                    </div>
+                </div>
+                <div class="dashboard-widget">
+                    <h2>Informes por Tipo</h2>
+                    <div class="chart-container">
+                        <canvas id="informes-tipo-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="dashboard-widget">
+                    <h2>Top 5 Instituciones con Pendientes</h2>
                     <table id="dashboard-top-instituciones-table">
-                        <thead>
-                            <tr>
-                                <th>Institución (Siglas)</th>
-                                <th>Recomendaciones Pendientes</th>
-                            </tr>
-                        </thead>
-                        <tbody id="dashboard-top-instituciones-tbody">
-                            <tr><td colspan="2">Cargando...</td></tr>
-                        </tbody>
+                        <thead><tr><th>Institución</th><th>Pendientes</th></tr></thead>
+                        <tbody id="dashboard-top-instituciones-tbody"><tr><td colspan="2">Cargando...</td></tr></tbody>
                     </table>
                 </div>
-    
-                <div class="dashboard-widget widget-large">
-                    <h2>Estado General de Recomendaciones</h2>
-                    <div class="chart-container">
-                        <canvas id="recomendaciones-chart"></canvas>
-                    </div>
-                </div>
-    
-                <div class="dashboard-widget widget-large">
-                    <h2>Pendientes por Prioridad</h2>
-                    <div class="chart-container">
-                        <canvas id="prioridad-chart"></canvas>
-                    </div>
+                 <div class="dashboard-widget">
+                    <h2>Tiempo Promedio de Atención</h2>
+                    <div id="dashboard-kpi-antiguedad" class="kpi-container"><p>Cargando...</p></div>
                 </div>
 
                 <div class="dashboard-widget widget-large">
-                    <h2>Análisis por Tipo de Recomendación</h2>
-                    <div class="chart-container">
-                        <canvas id="tipo-chart"></canvas>
+                    <h2>Estado General de Recomendaciones</h2>
+                    <div class="chart-container"><canvas id="recomendaciones-chart"></canvas></div>
+                </div>
+                <div class="dashboard-widget widget-large">
+                    <h2>Pendientes por Prioridad</h2>
+                    <div class="chart-container"><canvas id="prioridad-chart"></canvas></div>
+                </div>
+                
+                <div class="dashboard-widget widget-large">
+                    <h2>Recomendaciones Emitidas por Tipo de Informe</h2>
+                     <div class="chart-container">
+                        <canvas id="rec-emitidas-tipo-informe-chart"></canvas>
                     </div>
                 </div>
-    
+                <div class="dashboard-widget widget-large">
+                    <h2>Recomendaciones Atendidas por Tipo de Informe</h2>
+                    <div class="chart-container">
+                        <canvas id="rec-atendidas-tipo-informe-chart"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
