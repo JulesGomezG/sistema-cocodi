@@ -1,0 +1,64 @@
+
+Checkpoint del Taller de Desarrollo (Estado Actual)
+Proyecto: Sistema de Gestión COCODI.
+28-10-2025 1800hrs
+
+Módulo: Dashboard (Sección 1 Global y Sección 2 Detallada).
+
+Stack: Python (Flask), PostgreSQL, JavaScript (Vanilla), Chart.js (con plugin datalabels).
+
+Sección 1: Vista Global (Comparativa DG) - COMPLETADA
+
+Muestra 9 widgets comparando todas las DGs.
+
+Widgets implementados:
+
+Distribución de Instituciones Asignadas (Gráfico de Pastel)
+
+Instituciones con Focos Rojos (Gráfico de Barras)
+
+Total Sesiones Ordinarias Realizadas (Gráfico de Barras)
+
+Total Sesiones Extraordinarias Realizadas (Gráfico de Barras)
+
+Total Sesiones por Tipo de Órgano (Gráfico Apilado, agrupado por 'COCODI', 'Órgano de Gobierno', 'Otros')
+
+Total Informes Entregados por Tipo (Gráfico Agrupado por DG y Tipo de Informe)
+
+Total Recomendaciones Emitidas (KPI Numérico)
+
+Volumen Recomendaciones (Gráfico Apilado, "Atendidas" vs "Pendientes")
+
+% Recomendaciones (Atención s/ Emitidas) (Gráfico de Barras)
+
+Fuente de Datos de Recs: Consulta Híbrida (lee recomendaciones y informes).
+
+Sección 2: Vista Detallada (Filtrable) - EN PROGRESO / CON ERRORES
+
+Filtros Implementados: Año, DG (Req), Ramo, Responsable, Institución.
+
+Lógica de Vista Implementada (Opción C):
+
+Modo Normal (Se activa al filtrar por DG, DG+Ramo+Resp, o DG+Ramo+Resp+Inst): Muestra KPIs y gráficos detallados para el filtro seleccionado.
+
+Modo Comparativo (Se activa al filtrar por DG+Ramo, y Responsable="Todos"): Oculta el Modo Normal y muestra una tabla comparativa "Delegada vs. Comisaria".
+
+Widgets Implementados (Modo Normal):
+
+KPIs: Sesiones Ordinarias, Sesiones Extraordinarias, Informes Entregados.
+
+Gráfico de Dona: Avance Recomendaciones (%).
+
+KPI + Modal: Instituciones con Focos Rojos (conteo y detalle modal agrupado por Ramo).
+
+KPI + Modal: Informes Requeridos Faltantes (conteo y detalle modal agrupado por Ramo/Inst).
+
+Gráfico: Sesiones Ordinarias por Tipo de Órgano Específico.
+
+Gráfico: Sesiones Extraordinarias por Tipo de Órgano Específico.
+
+Widgets Implementados (Modo Comparativo):
+
+Tabla que compara "Delegada" vs. "Comisaria" para KPIs (Sesiones Ord/Ext, Informes, Avance Recs).
+
+Problema de Regresión Actual: La sección "Seguimiento de Sesiones" (section-sesiones) ya no puebla el filtro de "Año" (#filtro-año), lo cual indica un error en la función setupCascadingFilters de app.js que se introdujo al implementar la lógica del dashboard.

@@ -1,0 +1,77 @@
+
+Checkpoint: Fase A, Paso 2.1 - CRUD de Informes (Finalizado)
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Reparar el ciclo de vida completo (Crear, Leer, Actualizar, Eliminar) del módulo de Informes.
+
+Origen del Problema (El "Defecto"):
+
+Esquema (La "Verdad"): Tu prueba de \d informes confirmó que la base de datos es SSOT Puro. Las columnas de contadores (recomendaciones_emitidas, recomendaciones_atendidas) han sido eliminadas de la tabla informes.
+
+Código (El Defecto): El archivo app.py estaba en un estado "roto" a medio migrar. Múltiples funciones CRUD (las que alimentan los modales y las tablas) todavía intentaban SELECT, INSERT, o UPDATE esas columnas que ya no existían.
+
+Hallazgo Crítico: Descubrimos que la función manejar_informes (responsable del GET de la tabla principal y el POST del modal) ni siquiera existía en tu app.py actual, lo que explica por qué la cuadrícula de informes estaba rota.
+
+2. Solución Implementada (Lógica SSOT Pura)
+Reparamos el ciclo de vida completo del "Informe" implementando la lógica SSOT Pura en el app.py:
+
+Para GET (Leer la tabla/detalle del informe):
+
+Añadimos la función manejar_informes.
+
+Reescribimos las consultas SELECT (en manejar_informes y manejar_informe_detalle) para que ya no busquen las columnas recomendaciones_emitidas/atendidas en la tabla informes.
+
+En su lugar, ahora calculamos esos contadores "en vivo" usando subconsultas ((SELECT COUNT(*)...)) que leen directamente de la tabla recomendaciones. Esto asegura que la UI siempre muestre la "verdad".
+
+Para POST (Crear un informe nuevo):
+
+Implementamos la lógica 1+N. Cuando guardas el modal "Nuevo Informe" (ej. 3 Emitidas, 1 Atendida):
+
+Padre (1): Se INSERTa 1 fila en informes (sin contadores).
+
+Hijos (N): El código crea 3 filas N/A en recomendaciones (1 'Atendida', 2 'Pendientes') vinculadas al padre, usando la fecha_informe del modal.
+
+Para PUT (Editar un informe):
+
+Implementamos una lógica de "Sincronización". Cuando editas el modal (ej. de 3/1 a 5/2):
+
+Se UPDATEa el "padre" (informes).
+
+Se DELETEan todos los hijos N/A antiguos.
+
+Se INSERTan 5 hijos N/A nuevos (2 'Pendientes', 3 'Atendidas') con la fecha correcta.
+
+Para DELETE (Eliminar un informe):
+
+Implementamos un borrado lógico en cascada. El código ahora:
+
+Ejecuta UPDATE ... SET activo = FALSE en todas las recomendaciones "hijo".
+
+Ejecuta UPDATE ... SET activo = FALSE en el informe "padre".
+
+3. Proceso de Depuración (Iteraciones Clave)
+Nuestro proceso de pruebas paso a paso fue crucial para encontrar y corregir los bugs que yo mismo introduje:
+
+Prueba 2.1 (Crear Informe): La creación funcionó (POST), pero reveló el Bug 1 (Fecha 1/1/1900). Las recomendaciones N/A se creaban con la fecha default de la BBDD.
+
+Acción: Se parchó manejar_informes (POST) para pasar la fecha_informe del padre a los hijos N/A durante su creación.
+
+Prueba 2.2 (Editar Recomendación Hija): Tu prueba de "editar hijo" reveló el Bug 2 (Crash al Editar). El error column "id_informe" does not exist demostró que mi parche para manejar_recomendacion_detalle_crud (PUT) estaba mal.
+
+Acción: Se parchó manejar_recomendacion_detalle_crud (PUT) para usar el nombre de columna correcto (informe_id).
+
+Prueba 2.3 (Editar Informe): La edición del informe (PUT) funcionó (los contadores 5/3 se sincronizaron), pero reveló el Bug 1 de nuevo. Mi parche de PUT también olvidó pasar la fecha a los hijos N/A re-sincronizados.
+
+Acción: Se parchó manejar_informe_detalle (PUT) para que la lógica de "Sincronización" también pase la fecha_informe a los nuevos hijos.
+
+Prueba 2.4 (Eliminar Informe): Tu prueba final de borrado fue exitosa, validando el DELETE.
+
+4. Estado Final y Artefactos Modificados
+Estado: El Checkpoint 2.1 (CRUD de Informes) está COMPLETADO y VALIDADO.
+
+Artefactos Modificados: app.py
+
+manejar_informes: Añadida (con lógica GET y POST corregida).
+
+manejar_informe_detalle: Reemplazada (con lógica GET, PUT y DELETE corregida).
+
+manejar_recomendacion_detalle_crud: Reemplazada (para corregir el Bug 2 que encontramos durante las pruebas).

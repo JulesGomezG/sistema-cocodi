@@ -1,0 +1,81 @@
+
+Checkpoint del Taller de Desarrollo (Estado Actual)
+Proyecto: Sistema de Gestión COCODI. Dashboard
+29-10-2025 1800hrs
+
+
+1. Objetivo Inicial y Origen del Problema
+Comenzamos este taller con un objetivo de depuración muy específico:
+
+Objetivo: Solucionar un bug en el Dashboard (Vista Detallada) donde el widget "Informes Entregados por Tipo" (#dd-chart-informes-tipo) no se cargaba y se quedaba atascado en "Cargando...".
+
+Origen del Problema: Tras analizar los tres archivos (.py, .html, .js), identificamos que el backend y el HTML eran correctos. El error estaba en app.js, donde una función de limpieza (cargarDatosDashboardDetallado) usaba un selector de JavaScript (.kpi-container) demasiado amplio. Este selector borraba accidentalmente el <canvas> del gráfico de dona antes de que el gráfico pudiera dibujarse.
+
+2. Solución Implementada
+La sesión evolucionó de una simple corrección de bug a una implementación de dos nuevas características de análisis de datos, inspiradas en un dashboard "rústico" que analizamos.
+
+A. Corrección del Bug (Widget "Informes por Tipo")
+
+Archivo: app.js
+
+Función: cargarDatosDashboardDetallado
+
+Solución: Modificamos el selector de JavaScript para que fuera más específico, excluyendo los contenedores de gráficos.
+
+Antes: ...querySelectorAll('... .kpi-container')
+
+Después: ...querySelectorAll('... .kpi-container:not(.chart-container)')
+
+B. Nueva Feature 1: Gráfico "Avance de Recomendaciones por Origen" (Vista Detallada)
+
+Objetivo: Replicar el valioso desglose del dashboard rústico, que mostraba cuántas recomendaciones (emitidas vs. atendidas) provenían de cada tipo de informe (RAAD, Autoevaluación, etc.).
+
+Implementación:
+
+app.py: Añadimos una nueva consulta SQL a la API get_dashboard_stats. Esta consulta usa la lógica híbrida (Recomendaciones Reales + Históricas) y la agrupa por tipos_informe.nombre_informe. El resultado se expone como grafico_avance_recomendaciones_por_tipo.
+
+index.html: Añadimos un nuevo widget div (clases dashboard-widget widget-large) y un nuevo <canvas id="dd-chart-avance-recs-por-tipo">.
+
+app.js: Añadimos la función de renderizado renderDetalleAvanceRecsPorTipo (tipo bar) y la lógica asociada para limpiarla y llamarla desde cargarDatosDashboardDetallado.
+
+C. Nueva Feature 2: Gráfico "Eficiencia de Recomendaciones por Origen (por DG)" (Vista Global)
+
+Objetivo: Aplicar la misma lógica de la Feature 1, pero a nivel de la Vista Global, para comparar la eficiencia de las DGs en la atención de recomendaciones, desglosada por el tipo de informe que las originó.
+
+Implementación:
+
+app.py: Añadimos una consulta SQL compleja a la API get_dashboard_global_stats. Esta consulta crea una matriz (DGs x Tipos de Informe) y calcula el % de eficiencia para cada celda, usando la misma lógica híbrida. El resultado se expone como grafico_eficiencia_recs_por_tipo_dg.
+
+index.html: Añadimos un nuevo widget div (clases dashboard-widget widget-large) y un nuevo <canvas id="global-eficiencia-recs-por-tipo-chart">.
+
+app.js: Añadimos la función de renderizado renderGlobalEficienciaRecsPorTipo (tipo bar agrupado) y la lógica asociada para limpiarla y llamarla desde cargarDatosDashboardGlobal.
+
+3. Proceso de Depuración (Iteraciones Clave)
+Nuestra implementación no fue directa; encontramos y resolvimos varios errores de sintaxis e integración en el camino.
+
+Error de Carácter Inválido (Python): Al implementar la Feature 1, el bloque de app.py que proporcioné contenía caracteres U+00A0 (espacios indivisibles) y mala indentación, causando un SyntaxError en Flask.
+
+Solución: Reemplazamos el bloque de código completo por una versión limpia y correctamente indentada.
+
+Error de Columna Inexistente (SQL): Al implementar la Feature 2, el servidor de Flask arrojó un error de base de datos (column d.activo does not exist).
+
+Causa: Mi consulta SQL intentaba filtrar por d.activo en un CTE (InstitutionsByDG) donde d era un alias a un CTE anterior (DGs) que no incluía la columna activo.
+
+Solución: Corregimos la consulta SQL, uniendo el CTE InstitutionsByDG al CTE DGs (en lugar de a la tabla dgs) y eliminando el filtro redundante d.activo.
+
+Error de Sintaxis (JavaScript): Tras el último cambio, la aplicación dejó de cargar por completo (el filtro "Año" de Sesiones estaba roto), y la consola del navegador mostró un Uncaught SyntaxError: Unexpected string en app.js.
+
+Causa: Al añadir el ID del nuevo gráfico global (global-eficiencia-recs-por-tipo-chart) al array chartCanvasIds (en el bloque catch de cargarDatosDashboardGlobal), olvidé añadir una coma al final de la línea anterior.
+
+Solución: Añadimos la coma faltante al array, lo que corrigió el SyntaxError y permitió que todo el archivo app.js se ejecutara, restaurando toda la funcionalidad del frontend.
+
+4. Estado Final y Artefactos
+Estado Actual: La sesión de trabajo ha concluido con éxito. El bug original está resuelto. Las dos nuevas características de análisis de recomendaciones (una en Vista Detallada, una en Vista Global) están implementadas, depuradas y funcionales.
+
+Artefactos Modificados:
+
+app.py (Backend)
+
+index.html (Estructura)
+
+app.js (Lógica de Frontend)

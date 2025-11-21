@@ -1,0 +1,80 @@
+Checkpoint: Desarrollo Sección "Recomendaciones"
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Desarrollar la sección principal de "Recomendaciones" en COCODI, incluyendo:
+
+Grid principal con filtros.
+
+Creación de recomendaciones independientes y asociadas a informes.
+
+Funcionalidad CRUD (Ver detalles, Editar, Eliminar).
+
+Integración con carga de evidencias.
+
+Actualización automática de contadores (emitidas, atendidas) en los informes asociados.
+
+Origen: El proyecto base ya tenía la tabla recomendaciones y un endpoint GET para leerlas, pero carecía de toda la lógica para crear, modificar o eliminar recomendaciones, así como la integración completa con la interfaz de usuario y la lógica de negocio de los contadores. El frontend (app.js) estaba parcialmente desarrollado pero apuntaba a endpoints inexistentes.
+
+2. Solución Implementada
+Se realizaron las siguientes implementaciones y modificaciones:
+
+Backend (app.py):
+
+Se implementaron los endpoints POST /api/recomendaciones (para crear, manejando lógica independiente vs. asociada y actualizando contador emitidas en la misma transacción) y GET /api/recomendaciones/<id>, PUT /api/recomendaciones/<id>, DELETE /api/recomendaciones/<id> (para detalles, edición y baja lógica).
+
+La lógica PUT incluye la actualización del contador recomendaciones_atendidas del informe asociado, comparando el estado anterior y nuevo ('Completada', 'Cerrada').
+
+La lógica DELETE /api/informes/<id> se mejoró para ajustar el contador recomendaciones_atendidas al eliminar un informe con recomendaciones atendidas.
+
+Se corrigió la función obtener_recomendaciones (GET /api/recomendaciones) para filtrar correctamente por id_informe cuando se solicita y siempre por activo = TRUE.
+
+Frontend (index.html):
+
+Se añadió el select para filtrar por Estatus en el grid principal.
+
+Se añadieron los selects de DG y Ramo al modal de creación/edición de recomendaciones para habilitar la cascada al crear recomendaciones independientes.
+
+Frontend (app.js):
+
+Se conectó el filtro de Estatus a la función de carga del grid.
+
+Se implementó la cascada de filtros completa (DG -> Ramo -> Resp -> Inst -> Org) dentro del modal para la creación de recomendaciones independientes.
+
+Se corrigió la función handleEditInforme para poblar y seleccionar correctamente todos los campos (incluida la cascada y el "Tipo de Informe") al editar un informe.
+
+Se corrigió la función handleEditRecomendacion para poblar y seleccionar correctamente la cascada de filtros al editar una recomendación independiente.
+
+Se eliminó la llamada redundante desde el frontend para incrementar el contador emitidas.
+
+Se modificó el listener del botón "Volver a la lista" en la vista de detalle de informes para que refresque automáticamente el grid principal (cargarInformes()).
+
+3. Proceso de Depuración (Iteraciones Clave)
+Durante el desarrollo, se identificaron y corrigieron varios errores:
+
+Errores de Formato/Sintaxis: Se corrigieron problemas de formato HTML y errores de sintaxis en app.js (llaves } faltantes/sobrantes, await fuera de async, variables fuera de scope) que impedían la correcta ejecución del script.
+
+Filtro activo=TRUE: Se detectó y corrigió que la consulta del grid principal (GET /api/recomendaciones) no filtraba correctamente por activo = TRUE, mostrando recomendaciones eliminadas.
+
+Filtro informe_id: Se corrigió la lógica en GET /api/recomendaciones para que aplicara correctamente el filtro informe_id cuando se solicitaba desde la vista de detalle, evitando que se mostraran recomendaciones independientes.
+
+Error 404 al Editar: Se diagnosticó que el error 404 al editar se debía a intentar editar IDs de recomendaciones inactivas (visibles por el error del filtro activo) o IDs inexistentes leídos incorrectamente del HTML.
+
+Contador emitidas (Refresco): Se identificó que el contador emitidas no se actualizaba visualmente de inmediato debido a una condición de carrera; se solucionó unificando la creación de la recomendación y la actualización del contador en la misma transacción del backend (POST /api/recomendaciones).
+
+Contador atendidas: Se implementó y depuró la lógica en el backend (PUT /api/recomendaciones/<id>) para incrementar/decrementar este contador basado en la transición de estatus ('Completada'/'Cerrada'), asegurando comparaciones insensibles a mayúsculas/minúsculas.
+
+Modal Editar Informe (Tipo Informe): Se corrigió handleEditInforme para poblar la cascada en el orden correcto y así poder obtener el id_institucion necesario para poblar el select "Tipo de Informe".
+
+Modal Editar Recomendación (Cascada): Se implementó la lógica en handleEditRecomendacion para poblar y preseleccionar correctamente la cascada DG->Ramo->... al editar una recomendación independiente.
+
+Refresco Grid Informes: Se añadió la llamada a cargarInformes() al botón "Volver a la lista" para asegurar que el grid principal se actualice después de realizar cambios en la vista de detalle.
+
+4. Estado Final y Artefactos
+Estado: La sección "Recomendaciones" se considera funcionalmente completa y estable. Cumple con todos los objetivos iniciales.
+
+Artefactos Modificados:
+
+app.py (Backend: Nuevos endpoints, lógica CRUD, lógica contadores, correcciones filtros)
+
+app.js (Frontend: Lógica de filtros, manejo de modales, llamadas API, correcciones refresco)
+
+index.html (Frontend: Añadidos selects para filtro Estatus y cascada en modal)

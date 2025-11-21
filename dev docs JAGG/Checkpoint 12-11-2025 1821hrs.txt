@@ -1,0 +1,103 @@
+Checkpoint Final del Taller: Dashboard SSOT y KPI de Rendimiento
+
+Proyecto: Taller de Desarrollo COCODI
+Fecha: 12 de noviembre de 2025
+Misión: Diagnosticar, reparar y mejorar analíticamente la funcionalidad completa de la section-dashboard tras la migración al esquema SSOT (Single Source of Truth).
+
+1. Contexto Inicial y Origen del Problema
+
+El objetivo era estabilizar el Dashboard (Global y Detallado) y evolucionarlo de un simple reporte de volúmenes a una herramienta de análisis de rendimiento y riesgo.
+
+Identificamos una cadena de errores y deficiencias:
+
+Error de UI (Clic): En la "Vista Global", el botón "Sesiones Ext." del widget de "Tendencia Anual" no respondía al clic.
+
+Error de Backend (HTTP 500): En la "Vista Detallada", la selección de filtros provocaba un HTTP 500 (INTERNAL SERVER ERROR) del endpoint /api/dashboard/stats debido a consultas que buscaban columnas (recomendaciones_emitidas) ya eliminadas de la tabla informes (migración SSOT).
+
+Error de Sintaxis SQL (HTTP 500): Una vez corregido el error SSOT, un HTTP 500 persistía debido a un alias incorrecto (e.id_institucion en lugar de e.institucion_id) en una consulta de la "Vista Detallada".
+
+Error de Renderizado (UI): La sub-vista "Ver Comparativas del Ramo" no dibujaba los 4 gráficos de barras (Sesiones, % Avance, Informes).
+
+Error de Tooltip (UI): Solucionado el renderizado, el tooltip del gráfico "% Avance" fallaba debido a un error de formato de datos.
+
+Deficiencia Analítica #1 (KPI): El widget "Instituciones con Focos Rojos" mostraba un conteo absoluto (#), un KPI de volumen engañoso, en lugar de un porcentaje (%) de rendimiento.
+
+Deficiencia Analítica #2 (KPI): El widget "Volumen de Recomendaciones por Origen" era un gráfico de barras simple que no mostraba el estado (Atendidas vs. Pendientes) de esas recomendaciones, perdiendo una oportunidad clave de diagnóstico.
+
+2. Solución Implementada (Resumen Técnico)
+
+Se realizaron modificaciones quirúrgicas en los tres archivos del stack para solucionar los problemas en tres fases:
+
+Fase 1: Estabilización (SSOT y Corrección de Bugs)
+
+app.py (Backend):
+
+Se refactorizó get_dashboard_stats para eliminar toda la lógica HistoricRecs (que consultaba columnas eliminadas) y basar todos los conteos de recomendaciones en la tabla recomendaciones (lógica SSOT pura).
+
+Se corrigió el alias SQL (e.institucion_id) en la consulta sql_informes_faltantes.
+
+app.js (Frontend):
+
+Se eliminó la función setupTendenciaToggle duplicada e incorrecta que causaba el error de clic.
+
+Se añadieron las 5 funciones de renderizado que faltaban para la "Comparativa de Ramo" (createHorizontalBarChart y sus 4 implementaciones).
+
+Se corrigió la lógica de formato en createHorizontalBarChart para reparar el tooltip de "% Avance".
+
+Fase 2: Mejora de KPI (Normalización de Focos Rojos)
+
+app.py (Backend):
+
+Se modificó get_dashboard_global_stats para calcular el porcentaje_focos_rojos (dividiendo focos_rojos_count entre institution_count por DG) y lo inyectó en la respuesta JSON.
+
+index.html (Vista):
+
+Se actualizó el <h3> del widget en la Vista Global a: % de Instituciones con Focos Rojos*.
+
+app.js (Lógica):
+
+Se actualizó renderGlobalFocosRojos para renderizar un gráfico de barras vertical basado en porcentaje_focos_rojos y mostrar el conteo absoluto en el tooltip (ej. 15.0% (3 de 20 inst.)).
+
+Fase 3: Mejora Analítica (Gráfico de Volumen por Origen)
+
+index.html (Vista):
+
+Se actualizó el <h3> del widget global-recs-volumen-por-tipo-chart a: "Volumen (Atendidas vs. Pendientes) por Origen".
+
+app.js (Lógica de Datos):
+
+Se modificó cargarDatosDashboardGlobal para eliminar la agregación .reduce() que aplanaba los datos. Ahora pasa la estructura completa (agrupada por DG y Tipo) a la función de renderizado.
+
+app.js (Lógica de Renderizado):
+
+Se reemplazó renderGlobalRecsVolumenPorTipo. La nueva función implementa un gráfico de barras apilado (stacked) y agrupado (grouped por tipo de informe) que desglosa visualmente "Atendidas" (verdes) y "Pendientes" (rojos/guindas) para cada DG y cada Origen (RAAD, Autoevaluación, etc.).
+
+3. Proceso de Depuración (Iteraciones Clave)
+
+El diagnóstico fue un proceso iterativo que requirió análisis de frontend, backend y base de datos:
+
+Iteración 1 (Error de Clic - app.js): Se identificó y eliminó una función setupTendenciaToggle duplicada e incorrecta que causaba el error de clic.
+
+Iteración 2 (Error HTTP 500 - app.py): El init.sql confirmó la migración a SSOT. Se reemplazó la función get_dashboard_stats por una versión 100% SSOT.
+
+Iteración 3 (Error HTTP 500 Persistente - app.py): El log de cocodi_db reveló un error de sintaxis: column e.id_institucion does not exist. Se corrigió el alias en la consulta sql_informes_faltantes.
+
+Iteración 4 (Error de Renderizado - app.js): La "Comparativa de Ramo" no dibujaba los 4 gráficos. Se añadieron las 5 funciones helper (createHorizontalBarChart, etc.) a app.js y se invocaron desde cargarDatosDashboardDetallado.
+
+Iteración 5 (Error de Tooltip - app.js): Se corrigió la función createHorizontalBarChart para aplicar la lógica de formateo también al tooltip.
+
+Iteración 6 (Mejora Analítica: Focos Rojos % - Full Stack): Se propuso un "cambio inteligente" para reemplazar el conteo de Focos Rojos por un porcentaje. Se modificó app.py para calcular el %, index.html para cambiar el título, y app.js para renderizar el nuevo gráfico vertical y el tooltip contextual.
+
+Iteración 7 (Mejora Analítica: Volumen por Origen - app.js): Se propuso fusionar dos widgets en uno. Se modificó cargarDatosDashboardGlobal para pasar la data de forma correcta (sin .reduce()) y se reescribió renderGlobalRecsVolumenPorTipo para crear el gráfico apilado/agrupado final.
+
+4. Estado Final y Artefactos
+
+Estado: El módulo section-dashboard (Vista Global y Vista Detallada) se encuentra Estable, 100% Funcional y Analíticamente Mejorado. Los problemas de UI, lógica de backend (SSOT) y renderizado de gráficos han sido resueltos. Los KPIs de la Vista Global ahora ofrecen mayor profundidad analítica.
+
+Artefactos Modificados:
+
+app.py (Backend)
+
+index.html (Frontend)
+
+app.js (Frontend)

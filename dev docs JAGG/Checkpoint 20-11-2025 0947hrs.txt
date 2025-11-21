@@ -1,0 +1,39 @@
+
+🏁 Checkpoint de Cierre: Consolidación de Herramienta de Auditoría (Sprint 8.2)
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Transformar la sección de "Reportería" de una simple vista de consulta a una Herramienta de Auditoría de Datos.
+
+Problema:
+
+La tabla mostraba celdas vacías cuando los datos eran nulos, creando ambigüedad (¿dato faltante o error de carga?).
+
+No existía una forma rápida de validar la cantidad de registros visualizados contra la cantidad de filas en el Excel exportado, dificultando el cotejo.
+
+Se requería garantizar que la exportación a Excel fuera consistente con la vista en pantalla.
+
+2. Solución Implementada
+Se intervino exclusivamente el Frontend (app.js) para desacoplar la presentación de los datos de la lógica de negocio, reforzando la integridad visual sin alterar el backend SSOT.
+
+Contador de Registros: Se inyectó un elemento DOM dinámico (counterDiv) al inicio de la función de renderizado que muestra: "Total de registros encontrados: [N]".
+
+Sanitización Visual ("N/A"): Se implementó una validación estricta en el bucle de renderizado de la tabla. Cualquier valor null, undefined, cadena vacía '', o guión '-' se reemplaza visualmente por un <span style="color: #999; font-style: italic;">N/A</span>.
+
+Persistencia de Exportación: Se validó que el botón "Exportar a Excel" (existente en el HTML) consumiera las variables globales de datos (reporteRecomendacionesData, etc.), garantizando que se descargue la "data cruda" correcta independientemente de los filtros visuales.
+
+3. Proceso de Depuración (Iteraciones Clave)
+Análisis de Estructura: Se revisó init.sql para confirmar qué campos podían ser NULL tras la relajación de restricciones para la carga histórica.
+
+Refactorización de renderTablaDatos: Se reescribió la función para aceptar un contenedor genérico e inyectar el contador antes de crear la tabla.
+
+Manejo de Caché: Se detectó que el navegador no reflejaba los cambios visuales (ausencia del contador) debido a la caché de archivos estáticos JS, solucionado mediante Hard Refresh.
+
+4. Estado Final y Artefactos Modificados
+El módulo ahora permite a un auditor filtrar datos (por año, DG, etc.), ver inmediatamente el volumen de registros y confirmar visualmente qué celdas carecen de información ("N/A") antes de descargar la evidencia en Excel.
+
+Artefactos Modificados:
+
+app.js: Función renderTablaDatos reemplazada completamente.
+
+index.html: (Sin cambios estructurales, solo uso de contenedores existentes).
+
+app.py: (Validado, sin cambios requeridos para esta tarea).

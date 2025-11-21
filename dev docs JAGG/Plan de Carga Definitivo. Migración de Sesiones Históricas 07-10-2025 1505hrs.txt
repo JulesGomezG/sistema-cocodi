@@ -1,0 +1,32 @@
+Plan de Carga Definitivo: Migración de Sesiones Históricas
+Fecha: 7 de Octubre de 2025
+Estado: Listo para Implementación.
+
+Resumen Ejecutivo
+El análisis de los datos históricos de sesiones ha concluido. Todos los problemas de mapeo, integridad y limpieza de datos han sido identificados, validados con el negocio y resueltos. Este documento describe la estrategia final para la carga masiva de dichos datos.
+
+Acciones y Resoluciones
+Base de Datos de Destino:
+
+Acción: Se utilizará el script init_final_v22.sql. Esta versión incluye el vínculo crítico (CIASI, Comisión Intersecretarial) que fue validado y añadido, garantizando que no habrá fallos de integridad referencial durante la carga.
+
+Mapeo de Nombres:
+
+Acción: Se utilizará el archivo mapeo_final.json como diccionario de traducción. Este archivo ha sido actualizado para incluir todos los alias de Fideicomisos (FICINE) y órganos específicos (Subcomité de Evaluación).
+
+Limpieza de Datos (Duplicados e Inválidos):
+
+Acción: El módulo de carga programático deberá implementar la siguiente lógica de limpieza antes de procesar los registros:
+
+Registro 297 ("INSTITUCION", "COCODI", "RESPONSABLE"): Esta fila debe ser ignorada/saltada por el script.
+
+Registros 26 y 27 (Duplicado de IMIPAS): El script debe procesar la primera ocurrencia (fila 26) y omitir la segunda (fila 27) para evitar una violación de la restricción UNIQUE en la base de datos.
+
+Justificación: Esta lógica asegura la integridad de los datos sin requerir una limpieza manual del archivo Excel original.
+
+Lógica de Implementación Final
+El pseudocódigo proporcionado en el archivo pseudocodigo_carga.py sigue siendo válido y debe ser la base para el desarrollo del módulo de carga. Dicho script ya contempla la utilización del archivo de mapeo y la validación de vínculos. La lógica de limpieza descrita anteriormente debe ser añadida al inicio del ciclo de procesamiento de filas.
+
+Con estos tres artefactos (el script SQL final, el diccionario de mapeo completo y este plan de carga), tenemos todo lo necesario para asegurar una migración de datos de sesiones exitosa y sin errores.
+
+Estamos listos para proceder con el análisis de los datos históricos de Informes.

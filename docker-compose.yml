@@ -5,12 +5,10 @@ services:
     image: postgres:15-alpine
     container_name: cocodi_db
     environment:
-      - POSTGRES_USER=cocodi_user
-      - POSTGRES_PASSWORD=supersecretpassword
-      - POSTGRES_DB=cocodi_db
+        - POSTGRES_USER=cocodi_user
+        - POSTGRES_PASSWORD=new_password_2025
+        - POSTGRES_DB=cocodi_db
     volumes:
-      # ### CAMBIO: Usar un "named volume" en lugar de una carpeta local (bind mount).
-      # Esto es más robusto y evita problemas de permisos.
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
@@ -26,15 +24,16 @@ services:
     build: .
     ports:
       - "5001:5001"
+    # --- CORRECCIÓN CRÍTICA ---
+    # Eliminamos la línea '- .:/app'. Ya no intentaremos sincronizar en vivo.
+    # Confiaremos en los archivos copiados por el Dockerfile durante el 'build'.
     volumes:
-      - .:/app
       - ./uploads:/app/uploads
     environment:
-      - DATABASE_URL=postgresql://cocodi_user:supersecretpassword@db:5432/cocodi_db
+      - DATABASE_URL=postgresql://cocodi_user:new_password_2025@db:5432/cocodi_db
     depends_on:
       db:
         condition: service_healthy
 
-# Se declara el "named volume" que será gestionado por Docker.
 volumes:
   postgres_data:

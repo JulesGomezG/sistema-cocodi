@@ -1,136 +1,502 @@
 -- =================================================================
--- Script Definitivo - Modelo v16.2 (Mejoras en Directorio)
+-- Script de Inicialización COCODI - Base SSOT (Fase 2)
+-- Propósito: Crea la ESTRUCTURA SSOT lista para la carga histórica.
+
+-- CAMBIOS CLAVE:
+-- 1. Se ELIMINAN 'recomendaciones_emitidas' y 'recomendaciones_atendidas'
+--    de la tabla 'informes'. (Esta era la Misión Original).
+-- 2. Se relajan 'NOT NULL' en 'informes' (ej. id_tipo_organo)
+--    para permitir la carga histórica desde el CSV.
+-- 3. Se relajan 'NOT NULL' en 'recomendaciones' (ej. id_institucion)
+--    ya que esa información ahora se hereda del informe_id.
+-- 4. Se corrige FK en 'recomendaciones' a ON DELETE CASCADE.
 -- =================================================================
 
--- -----------------------------------------------------
--- Creación de Tablas
--- -----------------------------------------------------
-DROP TABLE IF EXISTS Directorio_Contactos, Evidencias, Recomendaciones, Informes_de_Seguimiento, Ejecucion_Sesiones, Calendario_Sesiones, Institucion_Organos, Catalogo_Organos_Colegiados, Instituciones, Responsables CASCADE;
+-- FASE 1: LIMPIEZA TOTAL DEL ESQUEMA
 
-CREATE TABLE IF NOT EXISTS Responsables (
-  id_responsable SERIAL PRIMARY KEY,
-  nombre_responsable VARCHAR(100) NOT NULL UNIQUE
+DROP TABLE IF EXISTS
+evidencias, recomendaciones, informes, sesiones, directorio_contactos,
+institucion_tipo_informe_valido, institucion_organos, instituciones, tipos_organo_gobierno,
+naturalezas_juridicas_desglose, naturalezas, tipos_informe,
+tipos_sesion, ramos, dgs, responsables CASCADE;
+
+-- FASE 2: CREACIÓN DE LA ESTRUCTURA DE TABLAS (VALIDADA)
+
+CREATE TABLE IF NOT EXISTS dgs (
+id_dg SERIAL PRIMARY KEY,
+nombre_dg VARCHAR(255) NOT NULL,
+siglas_dg VARCHAR(50) UNIQUE NOT NULL,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN DEFAULT TRUE
 );
 
-CREATE TABLE IF NOT EXISTS Instituciones (
-  id_institucion SERIAL PRIMARY KEY,
-  id_responsable INT NOT NULL,
-  nombre_institucion VARCHAR(255) NOT NULL UNIQUE,
-  siglas VARCHAR(50) NULL,
-  CONSTRAINT fk_institucion_responsable FOREIGN KEY (id_responsable) REFERENCES Responsables (id_responsable)
+CREATE TABLE IF NOT EXISTS ramos (
+id_ramo SERIAL PRIMARY KEY,
+numero_ramo VARCHAR(10) NOT NULL UNIQUE,
+nombre_ramo VARCHAR(255) NOT NULL,
+id_dg INT NOT NULL,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN DEFAULT TRUE,
+CONSTRAINT fk_dg FOREIGN KEY(id_dg) REFERENCES dgs(id_dg) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS Catalogo_Organos_Colegiados (
-  id_organo_colegiado SERIAL PRIMARY KEY,
-  nombre_organo VARCHAR(255) NOT NULL UNIQUE
+CREATE TABLE IF NOT EXISTS naturalezas (
+id_naturaleza SERIAL PRIMARY KEY,
+nombre VARCHAR(255) NOT NULL UNIQUE
 );
 
-CREATE TABLE IF NOT EXISTS Institucion_Organos (
-  id_institucion INT NOT NULL,
-  id_organo_colegiado INT NOT NULL,
-  PRIMARY KEY (id_institucion, id_organo_colegiado),
-  CONSTRAINT fk_vinculo_institucion FOREIGN KEY (id_institucion) REFERENCES Instituciones (id_institucion) ON DELETE CASCADE,
-  CONSTRAINT fk_vinculo_organo FOREIGN KEY (id_organo_colegiado) REFERENCES Catalogo_Organos_Colegiados (id_organo_colegiado) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS naturalezas_juridicas_desglose (
+id_naturaleza_juridica SERIAL PRIMARY KEY,
+nombre VARCHAR(255) NOT NULL UNIQUE,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN DEFAULT TRUE
 );
 
--- AJUSTE: Se añade campo 'extension'
-CREATE TABLE IF NOT EXISTS Directorio_Contactos (
-    id_contacto SERIAL PRIMARY KEY,
-    id_institucion INT NOT NULL,
-    id_organo_colegiado INT NULL, 
-    nombre_contacto VARCHAR(255) NOT NULL,
-    telefono VARCHAR(40) NULL,
-    extension VARCHAR(10) NULL,
-    email VARCHAR(255) NULL,
-    movil VARCHAR(50) NULL,
-    direccion TEXT NULL,
-    activo BOOLEAN NOT NULL DEFAULT TRUE,
-    CONSTRAINT fk_directorio_institucion FOREIGN KEY (id_institucion) REFERENCES Instituciones (id_institucion) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS responsables (
+id_responsable SERIAL PRIMARY KEY,
+nombre VARCHAR(100) NOT NULL UNIQUE,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN DEFAULT TRUE
 );
 
-CREATE TABLE IF NOT EXISTS Informes_de_Seguimiento (
-  id_informe SERIAL PRIMARY KEY,
-  id_institucion INT NOT NULL,
-  id_organo_colegiado INT NOT NULL,
-  id_responsable INT NOT NULL,
-  tipo_informe VARCHAR(255) NOT NULL,
-  periodo VARCHAR(50) NOT NULL,
-  fecha_informe DATE NOT NULL,
-  descripcion TEXT NULL,
-  activo BOOLEAN NOT NULL DEFAULT TRUE,
-  CONSTRAINT fk_informe_responsable FOREIGN KEY (id_responsable) REFERENCES Responsables (id_responsable),
-  CONSTRAINT fk_informe_institucion_organo FOREIGN KEY (id_institucion, id_organo_colegiado) REFERENCES Institucion_Organos (id_institucion, id_organo_colegiado)
+CREATE TABLE IF NOT EXISTS tipos_organo_gobierno (
+id_tipo_organo SERIAL PRIMARY KEY,
+nombre VARCHAR(255) NOT NULL,
+id_padre INT,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN DEFAULT TRUE,
+CONSTRAINT fk_padre_organo FOREIGN KEY(id_padre) REFERENCES tipos_organo_gobierno(id_tipo_organo)
 );
 
-CREATE TABLE IF NOT EXISTS Recomendaciones (
-  id_recomendacion SERIAL PRIMARY KEY,
-  id_informe INT NULL,
-  id_institucion INT NOT NULL,
-  id_organo_colegiado INT NOT NULL,
-  descripcion TEXT NOT NULL,
-  area_responsable_atencion VARCHAR(255) NOT NULL,
-  fecha_emision DATE NOT NULL,
-  fecha_compromiso DATE NULL,
-  estatus VARCHAR(50) NOT NULL DEFAULT 'Pendiente',
-  prioridad VARCHAR(50) DEFAULT 'Media',
-  tipo_recomendacion VARCHAR(100) DEFAULT 'Correctiva',
-  fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  activo BOOLEAN NOT NULL DEFAULT TRUE,
-  CONSTRAINT fk_recomendacion_informe FOREIGN KEY (id_informe) REFERENCES Informes_de_Seguimiento (id_informe) ON DELETE SET NULL,
-  CONSTRAINT fk_recomendacion_institucion_organo FOREIGN KEY (id_institucion, id_organo_colegiado) REFERENCES Institucion_Organos (id_institucion, id_organo_colegiado)
+CREATE TABLE IF NOT EXISTS tipos_informe (
+id_tipo_informe SERIAL PRIMARY KEY,
+nombre_informe VARCHAR(255) NOT NULL UNIQUE, -- CORREGIDO (era nombre_informe)
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN DEFAULT TRUE
 );
 
-CREATE TABLE IF NOT EXISTS Calendario_Sesiones (
-  id_calendario SERIAL PRIMARY KEY,
-  id_institucion INT NOT NULL,
-  id_organo_colegiado INT NOT NULL,
-  año INT NOT NULL,
-  tipo_sesion VARCHAR(50) NOT NULL,
-  numero_ordinal INT NULL,
-  estatus VARCHAR(50) NOT NULL DEFAULT 'Programada',
-  activo BOOLEAN NOT NULL DEFAULT TRUE,
-  CONSTRAINT fk_calendario_institucion_organo FOREIGN KEY (id_institucion, id_organo_colegiado) REFERENCES Institucion_Organos (id_institucion, id_organo_colegiado),
-  CONSTRAINT uq_sesion_planeada UNIQUE (id_institucion, id_organo_colegiado, año, tipo_sesion, numero_ordinal)
+CREATE TABLE IF NOT EXISTS tipos_sesion (
+id_tipo_sesion SERIAL PRIMARY KEY,
+nombre_sesion VARCHAR(100) NOT NULL UNIQUE,
+activo BOOLEAN DEFAULT TRUE
 );
 
-CREATE TABLE IF NOT EXISTS Ejecucion_Sesiones (
-  id_ejecucion SERIAL PRIMARY KEY,
-  id_calendario INT NOT NULL UNIQUE,
-  numero_sesion_oficial VARCHAR(100) NOT NULL,
-  fecha_real DATE NOT NULL,
-  responsable VARCHAR(255) NULL,
-  activo BOOLEAN NOT NULL DEFAULT TRUE,
-  CONSTRAINT fk_ejecucion_calendario FOREIGN KEY (id_calendario) REFERENCES Calendario_Sesiones (id_calendario)
+CREATE TABLE IF NOT EXISTS instituciones (
+id_institucion SERIAL PRIMARY KEY, -- CORREGIDO (era id_institucion)
+nombre_institucion VARCHAR(255) NOT NULL UNIQUE, -- CORREGIDO (era nombre_institucion)
+siglas VARCHAR(50) NULL,
+id_ramo INT NOT NULL,
+id_naturaleza INT NOT NULL,
+id_naturaleza_juridica INT NOT NULL,
+id_responsable INT NOT NULL,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN DEFAULT TRUE,
+CONSTRAINT fk_institucion_ramo FOREIGN KEY (id_ramo) REFERENCES ramos(id_ramo),
+CONSTRAINT fk_institucion_naturaleza FOREIGN KEY (id_naturaleza) REFERENCES naturalezas(id_naturaleza),
+CONSTRAINT fk_institucion_naturaleza_juridica FOREIGN KEY (id_naturaleza_juridica) REFERENCES naturalezas_juridicas_desglose(id_naturaleza_juridica),
+CONSTRAINT fk_institucion_responsable FOREIGN KEY (id_responsable) REFERENCES responsables (id_responsable)
 );
 
-CREATE TABLE IF NOT EXISTS Evidencias (
-  id_evidencia SERIAL PRIMARY KEY,
-  parent_id INT NOT NULL,
-  parent_type VARCHAR(50) NOT NULL,
-  nombre_archivo VARCHAR(255) NOT NULL,
-  url_almacenamiento VARCHAR(255) NOT NULL,
-  activo BOOLEAN NOT NULL DEFAULT TRUE
+CREATE TABLE IF NOT EXISTS institucion_organos (
+id_institucion INT NOT NULL,
+id_tipo_organo INT NOT NULL,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+PRIMARY KEY (id_institucion, id_tipo_organo),
+CONSTRAINT fk_vinculo_institucion FOREIGN KEY (id_institucion) REFERENCES instituciones (id_institucion) ON DELETE CASCADE,
+CONSTRAINT fk_vinculo_organo FOREIGN KEY (id_tipo_organo) REFERENCES tipos_organo_gobierno (id_tipo_organo) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS institucion_tipo_informe_valido (
+id_institucion INT NOT NULL,
+id_tipo_informe INT NOT NULL,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+PRIMARY KEY (id_institucion, id_tipo_informe),
+CONSTRAINT fk_valido_institucion FOREIGN KEY (id_institucion) REFERENCES instituciones (id_institucion) ON DELETE CASCADE,
+CONSTRAINT fk_valido_tipo_informe FOREIGN KEY (id_tipo_informe) REFERENCES tipos_informe (id_tipo_informe) ON DELETE CASCADE
+);
 
--- -----------------------------------------------------
--- Carga de Datos Iniciales (Catálogos y Vínculos)
--- -----------------------------------------------------
-INSERT INTO Responsables (id_responsable, nombre_responsable) VALUES (1, 'Delegada'), (2, 'Comisaria')
-ON CONFLICT (id_responsable) DO UPDATE SET nombre_responsable = EXCLUDED.nombre_responsable;
+CREATE TABLE IF NOT EXISTS directorio_contactos (
+id_contacto SERIAL PRIMARY KEY,
+id_institucion INT NOT NULL,
+id_tipo_organo INT NULL,
+nombre_contacto VARCHAR(255) NOT NULL,
+telefono VARCHAR(40) NULL,
+extension VARCHAR(10) NULL,
+email VARCHAR(255) NULL,
+movil VARCHAR(50) NULL,
+direccion TEXT NULL,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN NOT NULL DEFAULT TRUE,
+CONSTRAINT fk_directorio_institucion FOREIGN KEY (id_institucion) REFERENCES instituciones (id_institucion) ON DELETE CASCADE,
+CONSTRAINT fk_directorio_organo_valido FOREIGN KEY (id_institucion, id_tipo_organo) REFERENCES institucion_organos (id_institucion, id_tipo_organo) ON DELETE CASCADE
+);
 
-INSERT INTO Instituciones (id_institucion, id_responsable, nombre_institucion, siglas) VALUES
-(1, 2, 'Aeropuertos y Servicios Auxiliares', 'ASA'), (2, 2, 'Agencia Espacial Mexicana', 'AEM'), (3, 1, 'Agencia Nacional de Seguridad Industrial y de Protección al Medio Ambiente del Sector Hidrocarburos', 'ASEA'), (4, 1, 'Centro de Capacitación Cinematográfica', 'CCC'), (5, 2, 'Centro de Enseñanza Técnica Industrial', 'CETI'), (6, 2, 'Centro de Investigación en Química Aplicada', 'CIQA'), (7, 1, 'Compañía Operadora del Centro Cultural y Turístico de Tijuana', 'CECUT'), (8, 2, 'Centro de Producción de Programas Informativos y Especiales', 'CEPROPIE'), (9, 1, 'Comisión Intersecretarial para la Atención de Sequías e Inundaciones', 'CIASI'), (10, 2, 'Colegio de Postgraduados', 'COLPOS'), (11, 1, 'Colegio Superior Agropecuario del Estado de Guerrero', 'CSAEGRO'), (12, 1, 'Comité Nacional para el Desarrollo Sustentable de la Caña de Azúcar', 'CONADESUCA'), (13, 2, 'Comisión Nacional Forestal', 'CONAFOR'), (14, 1, 'Comisión Nacional del Agua', 'CONAGUA'), (15, 1, 'Comisión Nacional de Áreas Naturales Protegidas', 'CONANP'), (16, 1, 'Comisión Nacional de Acuacultura y Pesca', 'CONAPESCA'), (17, 2, 'Consejo Nacional para Prevenir la Discriminación', 'CONAPRED'), (18, 2, 'Consejo Nacional de Zonas Francas', 'CONAZA'), (19, 2, 'Consejo Nacional de Fomento Educativo', 'CONAFE'), (20, 1, 'Centro Cultural', 'CULTURA'), (21, 2, 'Diconsa', 'DICONSA'), (22, 1, 'Estudios Churubusco Azteca', 'ECHASA'), (23, 2, 'El Colegio de la Frontera Sur', 'ECOSUR'), (24, 1, 'Fideicomiso para la Cineteca Nacional', 'FICINE'), (25, 1, 'Fideicomiso 1490', 'FIDEICOMISO_1490'), (26, 2, 'Fideicomiso de Fomento Minero', 'FIFOMI'), (27, 2, 'Fideicomiso Fondo Nacional de Fomento Ejidal', 'FIFONAFE'), (28, 2, 'Financiera Nacional de Desarrollo Agropecuario, Rural, Forestal y Pesquero', 'FND'), (29, 2, 'Fondo de Capitalización e Inversión del Sector Rural', 'FOCIR'), (30, 2, 'Fondo Nacional para el Fomento de las Artesanías', 'FONART'), (31, 2, 'Fondo Nacional de Fomento al Turismo', 'FONATUR'), (32, 2, 'Fonatur Constructora', 'FONATUR CONSTRUCTORA'), (33, 2, 'Fonatur Infraestructura', 'FONATUR INFRAESTRUCTURA'), (34, 2, 'Fonatur Mantenimiento', 'FONATUR MANTENIMIENTO'), (35, 2, 'Fonatur Solar', 'FONATUR_SOLAR'), (36, 2, 'Fonatur Tren Maya', 'FONATUR_TREN_MAYA'), (37, 2, 'Grupo Aeroportuario de la Ciudad de México', 'GACM'), (38, 2, 'Hospital General de México', 'HGM'), (39, 2, 'Instituto Mexicano de Cinematografía', 'IMCINE'), (40, 2, 'Instituto Mexicano de la Juventud', 'IMJUVE'), (41, 2, 'Imprenta y Encuadernación Progreso', 'IMPRES'), (42, 1, 'Instituto Mexicano de la Radio', 'IMER'), (43, 1, 'Instituto Mexicano de Tecnología del Agua', 'IMTA'), (44, 1, 'Instituto Nacional de Antropología e Historia', 'INAH'), (45, 2, 'Instituto Nacional de Bellas Artes y Literatura', 'INBAL'), (46, 1, 'Instituto Nacional de Ecología y Cambio Climático', 'INECC'), (47, 2, 'Instituto Nacional para el Federalismo y el Desarrollo Municipal', 'INAFED'), (48, 2, 'Instituto Nacional de Investigaciones Forestales, Agrícolas y Pecuarias', 'INIFAP'), (49, 2, 'Instituto Nacional de Lenguas Indígenas', 'INALI'), (50, 1, 'Instituto Nacional de las Personas Adultas Mayores', 'INAPAM'), (51, 2, 'Instituto Nacional de los Pueblos Indígenas', 'INPI'), (52, 2, 'Instituto Nacional para la Educación de los Adultos', 'INEA'), (53, 1, 'Instituto Nacional de Pesca y Acuacultura', 'INAPESCA'), (54, 2, 'Instituto Nacional de Suelo Sustentable', 'INSUS'), (55, 2, 'Liconsa', 'LICONSA'), (56, 2, 'Lotería Nacional', 'LOTENAL'), (57, 2, 'Notimex', 'NOTIMEX'), (58, 2, 'Procuraduría Agraria', 'PA'), (59, 1, 'Procuraduría Federal de Protección al Ambiente', 'PROFEPA'), (60, 2, 'Pronósticos para la Asistencia Pública', 'PRONOSTICOS'), (61, 2, 'Productora Nacional de Biológicos Veterinarios', 'PRONABIVE'), (62, 1, 'Radio Educación', 'RADIO_EDUCACION'), (63, 2, 'Registro Agrario Nacional', 'RAN'), (64, 2, 'Servicios Aeroportuarios de la Ciudad de México', 'SACM'), (65, 1, 'Secretaría de Agricultura y Desarrollo Rural', 'SADER'), (66, 1, 'Servicio Geológico Mexicano', 'SGM'), (67, 1, 'Servicio Nacional de Sanidad, Inocuidad y Calidad Agroalimentaria', 'SENASICA'), (68, 1, 'Servicio de Información Agroalimentaria y Pesquera', 'SIAP'), (69, 2, 'Sistema Nacional para el Desarrollo Integral de la Familia', 'SNDIF'), (70, 2, 'Servicios a la Navegación en el Espacio Aéreo Mexicano', 'SENEAM'), (71, 2, 'Sistema Público de Radiodifusión del Estado Mexicano', 'SPR'), (72, 2, 'Talleres Gráficos de México', 'TGM'), (73, 2, 'Telecomunicaciones de México', 'TELECOMM'), (74, 2, 'Televisión Metropolitana', 'TELEVISION_METROPOLITANA')
-ON CONFLICT (id_institucion) DO UPDATE SET 
-nombre_institucion = EXCLUDED.nombre_institucion, 
-siglas = EXCLUDED.siglas,
-id_responsable = EXCLUDED.id_responsable;
+CREATE TABLE IF NOT EXISTS informes (
+informe_ssot_id SERIAL PRIMARY KEY, -- CAMBIO DE NOMBRE para claridad SSOT
+id_informe_origen VARCHAR(100) UNIQUE, -- ID del sistema viejo (CSV)
 
-INSERT INTO Catalogo_Organos_Colegiados (id_organo_colegiado, nombre_organo) VALUES
-(1, 'COCODI'), (2, 'Junta de Gobierno'), (3, 'Comité de Dictamen de Asociados'), (4, 'Asamblea General de Accionistas'), (5, 'Comisión Intersecretarial'), (6, 'Junta Directiva'), (7, 'Consejo Técnico'), (8, 'Consejo Directivo'), (9, 'Consejo de Administración'), (10, 'Comité de Evaluación'), (11, 'Comité Técnico'), (12, 'Comisión Ejecutiva'), (13, 'Comisión Interna de Administración'), (14, 'SISTEMA INTERSECRETARIAL'), (15, 'Asamblea General de Asociados')
-ON CONFLICT (id_organo_colegiado) DO UPDATE SET nombre_organo = EXCLUDED.nombre_organo;
+-- Columnas del CSV
+institucion_id INT NOT NULL,
+tipo_informe_id INT NOT NULL,
+anio_informe INT NOT NULL,
+titulo_informe TEXT,
 
-INSERT INTO Institucion_Organos (id_institucion, id_organo_colegiado) VALUES
-(1, 2), (2, 2), (3, 1), (3, 2), (4, 1), (4, 4), (4, 8), (5, 2), (6, 2), (7, 1), (7, 4), (8, 2), (9, 5), (10, 6), (11, 1), (12, 1), (12, 6), (13, 1), (13, 2), (14, 1), (14, 7), (15, 1), (16, 7), (17, 1), (18, 2), (19, 8), (20, 1), (21, 4), (21, 9), (22, 1), (22, 4), (23, 1), (23, 2), (24, 1), (25, 10), (26, 11), (27, 11), (28, 1), (29, 11), (30, 1), (30, 6), (31, 9), (32, 9), (33, 9), (34, 1), (35, 9), (36, 9), (37, 1), (38, 1), (39, 12), (40, 1), (41, 1), (42, 6), (43, 2), (44, 13), (45, 13), (46, 2), (47, 1), (48, 2), (49, 2), (50, 1), (50, 13), (51, 2), (52, 6), (53, 15), (54, 2), (55, 4), (55, 9), (56, 1), (56, 6), (57, 1), (58, 1), (59, 1), (60, 2), (61, 2), (62, 13), (63, 1), (64, 9), (65, 1), (66, 9), (67, 1), (68, 14), (69, 1), (70, 7), (71, 2), (72, 2), (73, 2), (74, 1), (74, 4), (74, 9)
-ON CONFLICT (id_institucion, id_organo_colegiado) DO NOTHING;
+-- Columnas que estaban NOT NULL pero no tenemos, ahora tienen DEFAULTS o son NULL
+id_tipo_organo INT NULL, -- Relajado de NOT NULL
+periodicidad VARCHAR(50) NOT NULL DEFAULT 'No Definida (Migración Histórica)',
+periodo_reportado VARCHAR(50) NOT NULL DEFAULT 'No Definida (Migración Histórica)',
+fecha_informe DATE NULL, -- Relajado de NOT NULL
+descripcion TEXT NULL,
 
+-- === INICIO DE CAMBIOS FASE 1 (AHORA SÍ) ===
+-- 'recomendaciones_emitidas' y 'recomendaciones_atendidas'
+-- han sido ELIMINADAS de esta tabla.
+-- === FIN DE CAMBIOS FASE 1 ===
+
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN NOT NULL DEFAULT TRUE,
+
+CONSTRAINT fk_informe_institucion FOREIGN KEY (institucion_id) REFERENCES instituciones(id_institucion),
+CONSTRAINT fk_informe_tipo_informe FOREIGN KEY (tipo_informe_id) REFERENCES tipos_informe(id_tipo_informe),
+CONSTRAINT fk_informe_institucion_organo FOREIGN KEY (institucion_id, id_tipo_organo) REFERENCES institucion_organos (id_institucion, id_tipo_organo)
+);
+
+CREATE TABLE IF NOT EXISTS recomendaciones (
+id_recomendacion SERIAL PRIMARY KEY,
+informe_id INT NOT NULL, -- CAMBIO: Ahora es NOT NULL y la FK principal
+
+-- Columnas que estaban NOT NULL y ahora son NULL (se heredan del informe)
+id_institucion INT NULL,
+id_tipo_organo INT NULL,
+
+-- Columnas que SÍ necesitamos
+descripcion TEXT NOT NULL,
+area_responsable_atencion VARCHAR(255) NOT NULL,
+estatus VARCHAR(50) NOT NULL DEFAULT 'Pendiente',
+
+-- Columnas NOT NULL que no tenemos, ahora tienen DEFAULTS o son NULL
+fecha_emision DATE NOT NULL DEFAULT '1900-01-01', -- Placeholder para NOT NULL
+fecha_compromiso DATE NULL,
+prioridad VARCHAR(50) DEFAULT 'Media',
+tipo_recomendacion VARCHAR(100) DEFAULT 'Correctiva',
+
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN NOT NULL DEFAULT TRUE,
+
+-- CAMBIO: FK apunta a la nueva PK de 'informes' y usa CASCADE
+CONSTRAINT fk_recomendacion_informe FOREIGN KEY (informe_id) REFERENCES informes (informe_ssot_id) ON DELETE CASCADE
+
+-- CAMBIO: Se elimina FK redundante a institucion_organos
+);
+
+CREATE TABLE IF NOT EXISTS sesiones (
+id_sesion SERIAL PRIMARY KEY,
+id_institucion INT NOT NULL,
+id_tipo_organo INT NOT NULL,
+id_tipo_sesion INT NOT NULL,
+año INT NOT NULL,
+numero_ordinal INT NULL,
+nombre_oficial_sesion VARCHAR(255),
+estatus VARCHAR(50) NOT NULL DEFAULT 'Programada',
+fecha_programada DATE,
+fecha_realizada DATE,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN NOT NULL DEFAULT TRUE,
+CONSTRAINT fk_sesion_institucion_organo FOREIGN KEY (id_institucion, id_tipo_organo) REFERENCES institucion_organos (id_institucion, id_tipo_organo),
+CONSTRAINT fk_sesion_tipo FOREIGN KEY (id_tipo_sesion) REFERENCES tipos_sesion(id_tipo_sesion),
+CONSTRAINT uq_sesion_planeada UNIQUE (id_institucion, id_tipo_organo, año, id_tipo_sesion, numero_ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS evidencias (
+id_evidencia SERIAL PRIMARY KEY,
+parent_id INT NOT NULL,
+parent_type VARCHAR(50) NOT NULL, -- 'informe', 'recomendacion', 'sesion'
+nombre_archivo VARCHAR(255) NOT NULL,
+url_almacenamiento VARCHAR(512) NOT NULL,
+fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_creacion VARCHAR(100),
+fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+usuario_actualizacion VARCHAR(100),
+activo BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- =================================================================
+-- FASE 3: CARGA DE DATOS DE CATÁLOGOS Y MAESTROS (VALIDADA)
+-- (Sin cambios, se pega el resto del script)
+-- =================================================================
+
+-- Carga de Catálogos
+INSERT INTO responsables (id_responsable, nombre, usuario_creacion) VALUES (1, 'Delegada', 'script_inicial'), (2, 'Comisaria', 'script_inicial') ON CONFLICT (id_responsable) DO UPDATE SET nombre = EXCLUDED.nombre;
+INSERT INTO dgs (id_dg, nombre_dg, siglas_dg, usuario_creacion) VALUES (1, 'Dirección General de Prevención de la Corrupción y Mejora Continua 1', 'DG1', 'script_inicial'),(2, 'Dirección General de Prevención de la Corrupción y Mejora Continua 2', 'DG2', 'script_inicial'),(3, 'Dirección General de Prevención de la Corrupción y Mejora Continua 3', 'DG3', 'script_inicial'),(4, 'Dirección General de Prevención de la Corrupción y Mejora Continua 4', 'DG4', 'script_inicial') ON CONFLICT (id_dg) DO UPDATE SET nombre_dg = EXCLUDED.nombre_dg, siglas_dg = EXCLUDED.siglas_dg;
+
+INSERT INTO ramos (id_ramo, numero_ramo, nombre_ramo, id_dg, usuario_creacion) VALUES
+(1, '02', 'Oficina de la Presidencia de la República', 4, 'script_inicial'),
+(2, '04', 'Gobernación', 4, 'script_inicial'),
+(3, '08', 'Agricultura y Desarrollo Rural', 4, 'script_inicial'),
+(4, '16', 'Medio Ambiente y Recursos Naturales', 4, 'script_inicial'),
+(5, '21', 'Turismo', 4, 'script_inicial'),
+(6, '37', 'Consejería Jurídica del Ejecutivo Federal', 4, 'script_inicial'),
+(7, '47', 'Entidades No Sectorizadas', 4, 'script_inicial'),
+(8, '48', 'Cultura', 4, 'script_inicial'),
+(9, '54', 'Mujeres', 4, 'script_inicial')
+ON CONFLICT (id_ramo) DO UPDATE SET numero_ramo = EXCLUDED.numero_ramo, nombre_ramo = EXCLUDED.nombre_ramo;
+
+INSERT INTO naturalezas (id_naturaleza, nombre) VALUES
+(1, 'Dependencia'),
+(2, 'Desconcentrado'),
+(3, 'Entidad'),
+(4, 'Intersecretarial')
+ON CONFLICT (id_naturaleza) DO UPDATE SET nombre = EXCLUDED.nombre;
+
+INSERT INTO naturalezas_juridicas_desglose (id_naturaleza_juridica, nombre, usuario_creacion) VALUES
+(1, 'Dependencia', 'script_inicial'),
+(2, 'Desconcentrado', 'script_inicial'),
+(3, 'Descentralizado', 'script_inicial'),
+(4, 'Empresa de Participación Estatal Mayoritaria', 'script_inicial'),
+(5, 'Estructura organizativa y operativa', 'script_inicial'),
+(6, 'Fideicomiso Público', 'script_inicial'), (7, 'órgano de coordinación', 'script_inicial'),
+(8, 'Fideicomiso con Estructura', 'script_inicial') ON CONFLICT (id_naturaleza_juridica) DO UPDATE SET nombre = EXCLUDED.nombre;
+
+INSERT INTO tipos_organo_gobierno (id_tipo_organo, nombre, id_padre, usuario_creacion) VALUES
+(1, 'COCODI', NULL, 'script_inicial'),
+(2, 'Órgano de Gobierno', NULL, 'script_inicial'),
+(3, 'Otros Órganos Colegiados', 2, 'script_inicial'),
+(4, 'Asamblea General de Accionistas', 2, 'script_inicial'),
+(5, 'Asamblea General de Asociados', 3, 'script_inicial'),
+(6, 'Comisión Ejecutiva', 3, 'script_inicial'),
+(7, 'Comisión Interna de Administración', 3, 'script_inicial'),
+(8, 'Comisión Intersecretarial', 3, 'script_inicial'),
+(9, 'Comité Técnico', 3, 'script_inicial'),
+(10, 'Consejo de Administración', 3, 'script_inicial'),
+(11, 'Consejo Directivo', 3, 'script_inicial'),
+(12, 'Consejo Nacional', 3, 'script_inicial'),
+(13, 'Consejo Técnico', 3, 'script_inicial'),
+(14, 'Junta de Gobierno', 3, 'script_inicial'),
+(15, 'Junta Directiva', 3, 'script_inicial'),
+(16, 'Sistema Intersecretarial', 3, 'script_inicial'),
+(17, 'Subcomité de Evaluación', 3, 'script_inicial')
+ON CONFLICT (id_tipo_organo) DO UPDATE SET nombre = EXCLUDED.nombre, id_padre = EXCLUDED.id_padre;
+
+INSERT INTO tipos_sesion (id_tipo_sesion, nombre_sesion) VALUES (1, 'Ordinaria'), (2, 'Extraordinaria') ON CONFLICT (id_tipo_sesion) DO NOTHING;
+INSERT INTO tipos_informe (id_tipo_informe, nombre_informe, usuario_creacion) VALUES (1, 'RAAD', 'script_inicial'), (2, 'Informe de Autoevaluación', 'script_inicial'), (3, 'Informe de Estados Financieros', 'script_inicial') ON CONFLICT (id_tipo_informe) DO NOTHING;
+
+-- Carga de Tabla Principal: Instituciones (70)
+INSERT INTO instituciones (id_institucion, nombre_institucion, siglas, id_ramo, id_naturaleza, id_naturaleza_juridica, id_responsable, usuario_creacion) VALUES
+(1, 'Oficina de la Presidencia de la República', 'OPR', 1, 1, 1, 1, 'script_inicial'),
+(2, 'Secretaría de Gobernación', 'GOBERNACIÓN', 2, 1, 1, 1, 'script_inicial'),
+(3, 'Centro de Producción de Programas Informativos y Especiales', 'CEPROPIE', 2, 2, 2, 1, 'script_inicial'),
+(4, 'Comisión Nacional de Búsqueda de Personas', 'CNB', 2, 2, 2, 1, 'script_inicial'),
+(5, 'Comisión Nacional para Prevenir y Erradicar la violencia contra las mujeres', 'CONAVIM', 2, 2, 2, 1, 'script_inicial'),
+(6, 'Coordinación General de la Comisión Mexicana de Ayuda a Refugiados', 'COMAR', 2, 2, 2, 1, 'script_inicial'),
+(7, 'Coordinación para la Atención Integral de la Migración en la Frontera Sur', 'CAIMFS', 2, 2, 2, 1, 'script_inicial'),
+(8, 'Instituto Nacional de Migración', 'INM', 2, 2, 2, 1, 'script_inicial'),
+(9, 'Instituto Nacional para el Federalismo y el Desarrollo Municipal', 'INAFED', 2, 2, 2, 1, 'script_inicial'),
+(10, 'Secretaría Ejecutiva del Sistema Nacional de Protección Integral de Niñas, Niños y Adolescentes', 'SIPPINA', 2, 2, 2, 1, 'script_inicial'),
+(11, 'Secretaría General del Consejo Nacional de Población', 'CONAPO', 2, 2, 2, 1, 'script_inicial'),
+(12, 'Talleres Gráficos de México', 'TGM', 2, 3, 3, 2, 'script_inicial'),
+(13, 'Consejo Nacional para Prevenir la Discriminación', 'CONAPRED', 2, 3, 3, 2, 'script_inicial'),
+(14, 'Secretaría de Agricultura y Desarrollo Rural', 'SADER', 3, 1, 1, 1, 'script_inicial'),
+(15, 'Colegio Superior Agropecuario del Estado de Guerrero', 'CSAEGRO', 3, 2, 2, 1, 'script_inicial'),
+(16, 'Comisión Nacional de Acuacultura y Pesca', 'CONAPESCA', 3, 2, 2, 1, 'script_inicial'),
+(17, 'Comité Nacional para el Desarrollo Sustentable de la Caña de Azúcar', 'CONADESUCA', 3, 3, 3, 1, 'script_inicial'),
+(18, 'Productora Nacional de Biológicos Veterinarios', 'PRONABIVE', 3, 3, 3, 1, 'script_inicial'),
+(19, 'Servicio de Información Agroalimentaria y Pesquera', 'SIAP', 3, 2, 2, 1, 'script_inicial'),
+(20, 'Servicio Nacional de Inspección y Certificación de Semillas', 'SNICS', 3, 2, 2, 1, 'script_inicial'),
+(21, 'Servicio Nacional de Sanidad, Inocuidad y Calidad Agroalimentaria', 'SENASICA', 3, 2, 2, 1, 'script_inicial'),
+(22, 'Sistema Nacional de Sanidad, Inocuidad y Calidad Agropecuaria y Alimentaría', 'SINASICA', 3, 4, 5, 1, 'script_inicial'),
+(23, 'Colegio de Postgraduados', 'COLPOS', 3, 3, 3, 2, 'script_inicial'),
+(24, 'Comisión Nacional de las Zonas Áridas', 'CONAZA', 3, 3, 3, 2, 'script_inicial'),
+(25, 'Alimentación para el Bienestar, S.A. de C.V.', 'AB', 3, 3, 4, 2, 'script_inicial'),
+(26, 'Fideicomiso de Riesgo Compartido', 'FIRCO', 3, 3, 3, 2, 'script_inicial'),
+(27, 'Instituto Mexicano de Investigación en Pesca y Acuacultura Sustentables', 'IMIPAS', 3, 3, 3, 2, 'script_inicial'),
+(28, 'Instituto Nacional de Investigaciones Forestales, Agrícolas y Pecuarias', 'INIFAP', 3, 3, 3, 2, 'script_inicial'),
+(29, 'Instituto Nacional para el Desarrollo de Capacidades del Sector Rural, A.C.', 'INCA RURAL', 3, 3, 4, 2, 'script_inicial'),
+(30, 'Leche par el Bienestar, S.A. de C.V.', 'LB', 3, 3, 4, 2, 'script_inicial'),
+(31, 'Seguridad Alimentaria Mexicana', 'SEGALMEX', 3, 3, 3, 2, 'script_inicial'),
+(32, 'Productora de Semillas para el Bienestar', 'PROSEBIEN', 3, 3, 3, 2, 'script_inicial'),
+(33, 'Fideicomiso de Investigación para el desarrollo del Programa Nacional de aprovechamiento del Atún y Protección de Delfines y otros en torno a Especies Acuáticas protegidas', 'FIDEMAR', 3, 3, 6, 2, 'script_inicial'),
+(34, 'Secretaría de Medio Ambiente y Recursos Naturales', 'SEMARNAT', 4, 1, 1, 1, 'script_inicial'),
+(35, 'Agencia Nacional de Seguridad Industrial y de Protección al Medio Ambiente del Sector Hidrocarburos', 'ASEA', 4, 2, 2, 1, 'script_inicial'),
+(36, 'Comisión Nacional de Áreas Naturales Protegidas', 'CONANP', 4, 2, 2, 1, 'script_inicial'),
+(37, 'Comisión Nacional del Agua', 'CONAGUA', 4, 2, 2, 1, 'script_inicial'),
+(38, 'Instituto Mexicano de Tecnología del Agua', 'IMTA', 4, 3, 3, 1, 'script_inicial'),
+(39, 'Instituto Nacional de Ecología y Cambio Climático', 'INECC', 4, 3, 3, 1, 'script_inicial'),
+(40, 'Procuraduría Federal de Protección al Ambiente', 'PROFEPA', 4, 2, 2, 1, 'script_inicial'),
+(41, 'Fideicomiso para Apoyar los Programas, Proyectos y Acciones Ambientales de la Megalópolis', 'Fideicomiso 1490', 4, 3, 6, 1, 'script_inicial'),
+(42, 'Comisión Intersecretarial para la Atención de Sequías e Inundaciones', 'CIASI', 4, 4, 7, 1, 'script_inicial'),
+(43, 'Comisión Nacional Forestal', 'CONAFOR', 4, 3, 3, 2, 'script_inicial'),
+(44, 'Secretaría de Turismo', 'TURISMO', 5, 1, 1, 1, 'script_inicial'),
+(45, 'Fondo Nacional de Fomento al Turismo', 'FONATUR', 5, 3, 6, 2, 'script_inicial'),
+(46, 'FONATUR Constructora, S.A. de C.V.', 'FONATUR CONSTRUCTORA', 5, 3, 4, 2, 'script_inicial'),
+(47, 'FONATUR Infraestructura, S.A. de C.V.', 'FONATUR INFRAESTRUCTURA', 5, 3, 4, 2, 'script_inicial'),
+(48, 'FONATUR Solar, S.A. de C.V.', 'FONATUR SOLAR', 5, 3, 4, 2, 'script_inicial'),
+(49, 'FONATUR Tren Maya, S.A. de C.V.', 'FTM', 5, 3, 4, 2, 'script_inicial'),
+(50, 'Consejería Jurídica del Ejecutivo Federal', 'CJEF', 6, 1, 1, 1, 'script_inicial'),
+(51, 'Secretaría Ejecutiva del Sistema Nacional Anticorrupción', 'SESNA', 7, 1, 3, 1, 'script_inicial'),
+(52, 'Archivo General de la Nación', 'AGN', 7, 3, 3, 2, 'script_inicial'),
+(53, 'Comisión Ejecutiva de Atención a Víctimas', 'CEAV', 7, 3, 3, 2, 'script_inicial'),
+(54, 'Secretaría de Cultura', 'CULTURA', 8, 1, 1, 1, 'script_inicial'),
+(55, 'Centro de Capacitación Cinematográfica, A.C.', 'CCC', 8, 3, 4, 1, 'script_inicial'),
+(56, 'Compañía Operadora del Centro Cultural y Turístico de Tijuana, S.A. de C.V.', 'CECUT', 8, 3, 4, 1, 'script_inicial'),
+(57, 'Estudios Churubusco Azteca, S.A.', 'ECHASA', 8, 3, 4, 1, 'script_inicial'),
+(58, 'Fideicomiso para la Cineteca Nacional', 'FICINE', 8, 3, 6, 1, 'script_inicial'),
+(59, 'Instituto Nacional de Antropología e Historia', 'INAH', 8, 2, 2, 1, 'script_inicial'),
+(60, 'Instituto Nacional de Bellas Artes y Literatura', 'INBAL', 8, 2, 2, 1, 'script_inicial'),
+(61, 'Instituto Nacional de Estudios Históricos de las Revoluciones de México', 'INEHRM', 8, 2, 2, 1, 'script_inicial'),
+(62, 'Instituto Nacional del Derecho de Autor', 'INDAUTOR', 8, 2, 2, 1, 'script_inicial'),
+(63, 'Radio Educación', 'RADIO EDU', 8, 2, 2, 1, 'script_inicial'),
+(64, 'Televisión Metropolitana, S.A. de C.V.', 'CANAL 22', 8, 3, 4, 1, 'script_inicial'),
+(65, 'Fondo Nacional para el Fomento de las Artesanías', 'FONART', 8, 3, 8, 2, 'script_inicial'),
+(66, 'Instituto Mexicano de Cinematografía', 'IMCINE', 8, 3, 3, 2, 'script_inicial'),
+(67, 'Fondo de Inversión y Estímulos al Cine', 'FIDECINE', 8, 3, 8, 2, 'script_inicial'),
+(68, 'Instituto Nacional de Lenguas Indígenas', 'INALI', 8, 3, 3, 2, 'script_inicial'),
+(69, 'Secretaría de las Mujeres', 'MUJERES', 9, 1, 1, 1, 'script_inicial'),
+(70, 'Fideicomiso de Inversión y Estímulos al Cine', 'FIMCINE', 8, 3, 3, 2, 'script_inicial')
+ON CONFLICT (id_institucion) DO UPDATE SET nombre_institucion = EXCLUDED.nombre_institucion, siglas = EXCLUDED.siglas, id_ramo = EXCLUDED.id_ramo, id_naturaleza = EXCLUDED.id_naturaleza, id_naturaleza_juridica = EXCLUDED.id_naturaleza_juridica, id_responsable = EXCLUDED.id_responsable;
+
+-- =================================================================
+-- FASE FINAL: CARGA DE VÍNCULOS INSTITUCIÓN-ÓRGANO (VERSIÓN VALIDADA)
+-- Total de Vínculos: 79
+-- =================================================================
+
+-- Vínculos explícitos del archivo de negocio (incluye 9 excepciones)
+INSERT INTO institucion_organos (id_institucion, id_tipo_organo) VALUES
+(2, 1), (8, 1), (12, 1), (12, 2), (13, 1), (13, 2), (14, 1), (15, 1),
+(16, 1), (16, 2), (17, 1), (17, 2), (18, 1), (18, 2), (20, 1), (20, 2),
+(21, 1), (21, 2), (22, 3), (23, 1), (23, 2), (24, 1), (24, 2), (25, 1),
+(25, 2), (25, 4), (26, 1), (26, 2), (27, 1), (27, 2), (28, 1), (28, 2),
+(29, 1), (29, 2), (29, 4), (30, 1), (30, 2), (30, 4), (31, 1), (31, 2),
+(32, 1), (32, 2), (33, 2), (34, 1), (35, 1), (36, 1), (37, 1), (37, 2),
+(38, 1), (38, 2), (39, 1), (39, 2), (40, 1), (41, 2), (41, 3), (42, 3),
+(43, 1), (43, 2), (44, 1), (45, 1), (45, 2), (45, 3), (46, 2), (46, 4),
+(47, 1), (47, 2), (47, 4), (48, 2), (48, 4), (49, 1), (49, 2), (49, 4),
+(50, 1), (51, 1), (51, 2), (52, 1), (52, 2), (53, 1), (53, 2), (54, 1),
+(55, 1), (55, 2), (55, 4), (56, 1), (56, 2), (56, 4), (57, 1), (57, 2),
+(57, 4), (58, 1), (58, 2), (59, 1), (59, 2), (59, 4), (60, 1), (60, 2),
+(61, 1), (61, 2), (62, 1), (62, 2), (63, 1), (63, 2), (64, 1), (64, 2),
+(64, 4), (65, 1), (65, 2), (66, 1), (66, 2), (67, 2), (68, 1), (68, 2),
+(69, 1);
+
+-- Vínculos COCODI añadidos por regla (instituciones sin otro órgano asignado)
+INSERT INTO institucion_organos (id_institucion, id_tipo_organo) VALUES
+(1, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1), (9, 1), (10, 1), (11, 1),
+(19, 1);
+
+-- =========== NUEVOS VÍNCULOS AUTORIZADOS (Total: 26) ===========
+-- Resultado de la validación de la bitácora histórica de sesiones.
+-- =================================================================
+
+INSERT INTO institucion_organos (id_institucion, id_tipo_organo, usuario_creacion) VALUES
+(39, 14, 'bitacora_historica'), -- INECC | JUNTA DE GOBIERNO
+(33, 9, 'bitacora_historica'),  -- FIDEMAR | COMITÉ TÉCNICO
+(20, 13, 'bitacora_historica'), -- SNICS | CONSEJO TÉCNICO
+(24, 11, 'bitacora_historica'), -- CONAZA | CONSEJO DIRECTIVO
+(26, 9, 'bitacora_historica'),  -- FIRCO | COMITÉ TÉCNICO
+(17, 15, 'bitacora_historica'), -- CONADESUCA | JUNTA DIRECTIVA
+(27, 14, 'bitacora_historica'), -- IMIPAS | JUNTA DE GOBIERNO
+(29, 15, 'bitacora_historica'), -- INCA RURAL | JUNTA DIRECTIVA
+(23, 15, 'bitacora_historica'), -- COLPOS | JUNTA DIRECTIVA
+(31, 10, 'bitacora_historica'), -- SEGALMEX | CONSEJO DE ADMINISTRACIÓN
+(41, 9, 'bitacora_historica'),  -- Fideicomiso 1490 | COMITÉ TÉCNICO
+(66, 15, 'bitacora_historica'), -- IMCINE | JUNTA DIRECTIVA
+(37, 13, 'bitacora_historica'), -- CONAGUA | CONSEJO TÉCNICO
+(45, 9, 'bitacora_historica'),  -- FONATUR | COMITÉ TÉCNICO
+(55, 11, 'bitacora_historica'), -- CCC | CONSEJO DIRECTIVO
+(56, 10, 'bitacora_historica'), -- CECUT | CONSEJO DE ADMINISTRACIÓN
+(57, 10, 'bitacora_historica'), -- ECHASA | CONSEJO DE ADMINISTRACIÓN
+(22, 16, 'bitacora_historica'), -- SINASICA | SISTEMA INTERSECRETARIAL
+(58, 9, 'bitacora_historica'),  -- FICINE | COMITÉ TÉCNICO
+(65, 9, 'bitacora_historica'),  -- FONART | COMITÉ TÉCNICO
+(68, 12, 'bitacora_historica'), -- INALI | CONSEJO NACIONAL
+(61, 7, 'bitacora_historica'),  -- INEHRM | COMISIÓN INTERNA DE ADMINISTRACIÓN
+(62, 7, 'bitacora_historica'),  -- INDAUTOR | COMISIÓN INTERNA DE ADMINISTRACIÓN
+(60, 7, 'bitacora_historica'),  -- INBAL | COMISIÓN INTERNA DE ADMINISTRACIÓN
+(59, 7, 'bitacora_historica'),  -- INAH | COMISIÓN INTERNA DE ADMINISTRACIÓN
+(45, 6, 'bitacora_historica'),  -- FONATUR | COMISIÓN EJECUTIVA
+(16, 13, 'bitacora_historica'),  -- CONAPESCA | CONSEJO TÉCNICO
+(28, 14, 'bitacora_historica'),
+(13, 14, 'bitacora_historica'),
+(38, 14, 'bitacora_historica'),
+(25, 10, 'bitacora_historica'),
+(30, 10, 'bitacora_historica'),
+(53, 14, 'bitacora_historica'),
+(21, 13, 'bitacora_historica'),
+(46, 10, 'bitacora_historica'),
+(48, 10, 'bitacora_historica'),
+(49, 10, 'bitacora_historica'),
+(29, 5, 'bitacora_historica'),
+(42, 8, 'bitacora_historica'),
+(18, 14, 'bitacora_historica'),
+(64, 10, 'bitacora_historica'),
+(43, 14, 'bitacora_historica'),
+(63, 7, 'bitacora_historica'),
+(55, 5, 'bitacora_historica'),
+(12, 14, 'bitacora_historica'),
+(32, 14, 'bitacora_historica'),
+(31, 4, 'bitacora_historica'),
+(41, 17, 'bitacora_historica'),
+(47, 10, 'bitacora_historica'),
+(70, 9, 'bitacora_historica');
+
+-- =================================================================
+-- FASE FINAL+: POBLACIÓN DE VÍNCULOS INSTITUCIÓN-TIPO_INFORME (VALIDADO)
+-- =================================================================
+
+-- Regla 1: Dependencias y Desconcentrados (excepto SESNA) generan RAAD
+INSERT INTO institucion_tipo_informe_valido (id_institucion, id_tipo_informe, usuario_creacion)
+SELECT i.id_institucion, 1 , 'script_reglas_validadas' -- RAAD (ID=1)
+FROM instituciones i
+WHERE i.id_naturaleza IN (1, 2) -- Naturaleza: Dependencia(1), Desconcentrado(2)
+AND i.id_institucion != 51 -- Excluir SESNA (ID=51)
+ON CONFLICT (id_institucion, id_tipo_informe) DO NOTHING;
+
+-- Regla 2: Entidades e Intersecretariales (+ SESNA) generan Informe de Autoevaluación
+INSERT INTO institucion_tipo_informe_valido (id_institucion, id_tipo_informe, usuario_creacion)
+SELECT i.id_institucion, 2, 'script_reglas_validadas' -- Informe de Autoevaluación (ID=2)
+FROM instituciones i
+WHERE i.id_naturaleza IN (3, 4) -- Naturaleza: Entidad(3), Intersecretarial(4)
+OR i.id_institucion = 51 -- Incluir SESNA (ID=51)
+ON CONFLICT (id_institucion, id_tipo_informe) DO NOTHING;
+
+-- Regla 3: Entidades e Intersecretariales (+ SESNA) generan Informe de Estados Financieros
+INSERT INTO institucion_tipo_informe_valido (id_institucion, id_tipo_informe, usuario_creacion)
+SELECT i.id_institucion, 3, 'script_reglas_validadas' -- Informe de Estados Financieros (ID=3)
+FROM instituciones i
+WHERE i.id_naturaleza IN (3, 4) -- Naturaleza: Entidad(3), Intersecretarial(4)
+OR i.id_institucion = 51 -- Incluir SESNA (ID=51)
+ON CONFLICT (id_institucion, id_tipo_informe) DO NOTHING;

@@ -7,13 +7,15 @@ FROM python:3.10-slim
 # Establecemos el directorio de trabajo dentro del contenedor
 WORKDIR /app
 
-# Copiamos el archivo de requerimientos
+# Copiamos el archivo de requerimientos PRIMERO para aprovechar la caché de Docker
+# en las instalaciones de pip
 COPY requirements.txt .
 
-# Instalamos las dependencias de Python
+# Instalamos las dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiamos el resto del código de la aplicación al contenedor
+# AHORA SÍ: Copiamos el resto del código de la aplicación al contenedor.
+# Esta será nuestra fuente de verdad.
 COPY . .
 
 # Comando que se ejecutará cuando el contenedor se inicie

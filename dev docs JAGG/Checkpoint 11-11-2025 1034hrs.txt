@@ -1,0 +1,71 @@
+1. Objetivo Inicial y Origen del Problema
+Misión (Fase B): Implementar la funcionalidad completa de la pestaña "Recomendaciones".
+
+Requerimiento Clave: Permitir la creación de recomendaciones "independientes" (con informe_id = NULL) desde el grid principal.
+
+Origen del Problema (Doble Hallazgo):
+
+Conflicto de Diseño (Esperado): El init.sql definía informe_id como NOT NULL, lo cual impedía cumplir la misión.
+
+Bug de Regresión (Inesperado): Se descubrió un bug crítico: las recomendaciones que SÍ debían estar asociadas a un informe (creadas desde la vista de detalle) se estaban guardando incorrectamente como Independiente. La aplicación estaba rota antes de implementar la nueva funcionalidad.
+
+💡 2. Solución Implementada
+Se dividió la misión en dos pasos: primero corregir la regresión, y segundo, implementar la nueva funcionalidad.
+
+Paso 1: Corrección de Regresión y Bugs de QA (Lógica y Visualización)
+
+Causa Raíz: Se identificó que el bug no estaba en el guardado (backend), sino en la lectura (frontend). La función renderRecomendaciones en app.js intentaba leer la propiedad rec.id_informe (incorrecta) en lugar de rec.informe_id (correcta, enviada por la API). Esto causaba que todos los valores (incluyendo los válidos) se mostraran como "Independiente".
+
+Solución 1.1 (Visualización): Se corrigió la función renderRecomendaciones en app.js para usar la propiedad correcta (rec.informe_id).
+
+Solución 1.2 (Visualización): Se limpió el HTML dentro de renderRecomendaciones para eliminar los caracteres inválidos (S, NT, IA, etc.) que estaban rompiendo el renderizado de la tabla y causando SyntaxError.
+
+Solución 1.3 (QA de Filtros): Se corrigió initRecomendacionesModule en app.js para que el filtro de "Estatus" usara la lista de valores correcta (['Pendiente', 'En Proceso', 'Completada', 'Cerrada', 'Cancelada']), coincidiendo con la base de datos.
+
+Paso 2: Implementación de "Recomendaciones Independientes" (Lógica de BD)
+
+Causa Raíz: Conflicto de diseño (informe_id INT NOT NULL).
+
+Solución 2.1 (Base de Datos): Se ejecutó el comando ALTER TABLE recomendaciones ALTER COLUMN informe_id DROP NOT NULL; para permitir valores nulos.
+
+Resultado: El app.py y app.js (que ya tenían la lógica correcta para manejar NULL) ahora funcionan como se esperaba.
+
+🛠️ 3. Proceso de Depuración (Iteraciones Clave)
+El taller fue complejo y requirió múltiples iteraciones para aislar la verdadera causa raíz.
+
+Iteración 1: Se identificó el bug de regresión (Recomendaciones Asociadas aparecían como "Independientes").
+
+Iteración 2 (Diagnóstico Falso): Mis análisis iniciales culparon erróneamente a la lógica de guardado en app.js (handleNuevaRecomendacionClick) y app.py (PUT /api/recomendaciones).
+
+Iteración 3 (Fallo de Generación): Al intentar "corregir" la función renderRecomendaciones, mi sistema introdujo repetidamente SyntaxError (caracteres inválidos), lo que rompió la aplicación y enmascaró el bug real.
+
+Iteración 4 (El Descubrimiento): Tus capturas de pantalla de la tabla rota (image_95bd7e.png) fueron la clave. Demostraron que el problema era 100% visual (renderizado), no de lógica de guardado.
+
+Iteración 5 (El Fix Real): Se corrigió el error de tipeo (rec.id_informe -> rec.informe_id) y se limpiaron los caracteres basura en renderRecomendaciones, lo cual arregló tanto el bug de asociación como el visual.
+
+Iteración 6: Se procedió al Paso 2. El error violates not-null constraint apareció como se esperaba.
+
+Iteración 7: Se aplicó el ALTER TABLE y se validó la creación de recomendaciones independientes.
+
+Iteración 8: Identificaste el bug final en los filtros de Estatus, que fue corregido.
+
+✅ 4. Estado Final y Artefactos
+Estado: Fase B completada.
+
+La sección "Recomendaciones" es 100% funcional.
+
+Se pueden crear, ver, editar y eliminar recomendaciones asociadas (desde un informe) e independientes (desde el grid principal).
+
+Los filtros y la visualización del grid son correctos.
+
+Artefactos Modificados:
+
+app.js (Modificado):
+
+renderRecomendaciones: Corregida para usar rec.informe_id y limpiada de SyntaxError.
+
+initRecomendacionesModule: Actualizado con la lista de Estatus correcta.
+
+Base de Datos (Modificada):
+
+La tabla recomendaciones ahora permite NULL en la columna informe_id.

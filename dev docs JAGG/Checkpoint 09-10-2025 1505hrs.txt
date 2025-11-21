@@ -1,0 +1,84 @@
+Checkpoint del Proyecto COCODI: Cierre de Fase 2
+Fecha: 9 de Octubre de 2025
+Estado: Fase de Arquitectura de BD y Carga de catálogos incluyendo Instituciones, Tipos de Órgano de Gobierno y los vínculos institución_órganos (Validación de Datos)
+
+
+Este documento resume el proceso de validación, las reglas de negocio aplicadas y los artefactos finales generados para garantizar la integridad de los datos fundacionales del sistema.
+
+El Desafío 🎯
+El objetivo fue validar la integridad y coherencia de los catálogos de 69 instituciones y 17 tipos de órgano, y construir las relaciones correctas entre ellos. Este proceso se rigió por un marco legal y un conjunto de reglas de negocio específicas, incluyendo el manejo de excepciones documentadas.
+
+La Lógica de Validación Aplicada ⚖️
+Se estableció y aplicó un modelo de validación de tres capas, basado en las reglas que me proporcionaste:
+
+1. Marco Legal
+Ley Federal de las Entidades Paraestatales: Se validó que toda institución clasificada como 'Entidad' (id_naturaleza = 3) tuviera asignado un Órgano de Gobierno (o un subtipo de este, con id_tipo_organo del 2 al 17).
+
+Acuerdo de Control Interno (SFP): Se aplicó la regla de que toda institución debe contar con un mecanismo de control interno, estableciendo el COCODI (id_tipo_organo = 1) como el órgano de control por defecto.
+
+2. Reglas de Negocio y Excepciones 📝
+Regla del Órgano Principal por Defecto: Se refinó la regla del COCODI. Se asignó un COCODI únicamente a aquellas instituciones que no tuvieran ya otro órgano principal asignado explícitamente en el archivo de negocio.
+
+Excepciones Documentadas: Se validaron y mantuvieron las siguientes excepciones a las reglas generales:
+
+Reclasificación de SESNA (ID 51): Se corrigió su id_naturaleza_juridica a 3 ('Descentralizado'), permitiéndole tener un Órgano de Gobierno a pesar de ser una 'Dependencia' en su naturaleza general.
+
+Desconcentrados con Órgano de Gobierno: Se aceptaron y mantuvieron los vínculos de Órgano de Gobierno para 9 instituciones 'Desconcentradas' (como CONAPESCA, INAH, etc.), tratándolas como excepciones correctas a la regla general.
+
+Artefactos Finales 🏛️
+El proceso culminó con la generación de una base de datos inicial limpia y coherente, representada por los siguientes artefactos:
+
+1. Resumen de la Base de Datos Validada
+Instituciones: 69 (con datos maestros validados y SESNA reclasificada).
+
+Tipos de Órgano de Gobierno: 17 (catálogo validado).
+
+Vínculos institucion_organos: 123 (total final verificado).
+
+113 vínculos explícitos derivados del archivo de negocio.
+
+10 vínculos de COCODI añadidos por la regla de "órgano por defecto".
+
+2. Script init.sql (Versión Final Validada)
+El artefacto principal es el script de inicialización que contiene la estructura y los datos validados. La pieza central de nuestro trabajo de validación es la tabla institucion_organos, que quedó definida de la siguiente manera:
+
+SQL
+
+-- =================================================================
+-- ARTEFACTO FINAL: VÍNCULOS INSTITUCIÓN-ÓRGANO VALIDADOS (Total: 123)
+-- =================================================================
+
+-- Total: 113 Vínculos Explícitos (Derivados del archivo de negocio y sus excepciones)
+INSERT INTO institucion_organos (id_institucion, id_tipo_organo, usuario_creacion) VALUES
+(2, 1, 'script_validado'), (8, 1, 'script_validado'), (12, 1, 'script_validado'), (12, 2, 'script_validado'), (13, 1, 'script_validado'), 
+(13, 2, 'script_validado'), (14, 1, 'script_validado'), (15, 1, 'script_validado'), (16, 1, 'script_validado'), (16, 2, 'script_validado'), 
+(17, 1, 'script_validado'), (17, 2, 'script_validado'), (18, 1, 'script_validado'), (18, 2, 'script_validado'), (20, 1, 'script_validado'), 
+(20, 2, 'script_validado'), (21, 1, 'script_validado'), (21, 2, 'script_validado'), (22, 3, 'script_validado'), (23, 1, 'script_validado'), 
+(23, 2, 'script_validado'), (24, 1, 'script_validado'), (24, 2, 'script_validado'), (25, 1, 'script_validado'), (25, 2, 'script_validado'), 
+(25, 4, 'script_validado'), (26, 1, 'script_validado'), (26, 2, 'script_validado'), (27, 1, 'script_validado'), (27, 2, 'script_validado'), 
+(28, 1, 'script_validado'), (28, 2, 'script_validado'), (29, 1, 'script_validado'), (29, 2, 'script_validado'), (29, 4, 'script_validado'), 
+(30, 1, 'script_validado'), (30, 2, 'script_validado'), (30, 4, 'script_validado'), (31, 1, 'script_validado'), (31, 2, 'script_validado'), 
+(32, 1, 'script_validado'), (32, 2, 'script_validado'), (33, 2, 'script_validado'), (34, 1, 'script_validado'), (35, 1, 'script_validado'), 
+(36, 1, 'script_validado'), (37, 1, 'script_validado'), (37, 2, 'script_validado'), (38, 1, 'script_validado'), (38, 2, 'script_validado'), 
+(39, 1, 'script_validado'), (39, 2, 'script_validado'), (40, 1, 'script_validado'), (41, 2, 'script_validado'), (41, 3, 'script_validado'), 
+(42, 3, 'script_validado'), (43, 1, 'script_validado'), (43, 2, 'script_validado'), (44, 1, 'script_validado'), (45, 1, 'script_validado'), 
+(45, 2, 'script_validado'), (45, 3, 'script_validado'), (46, 2, 'script_validado'), (46, 4, 'script_validado'), (47, 1, 'script_validado'), 
+(47, 2, 'script_validado'), (47, 4, 'script_validado'), (48, 2, 'script_validado'), (48, 4, 'script_validado'), (49, 1, 'script_validado'), 
+(49, 2, 'script_validado'), (49, 4, 'script_validado'), (50, 1, 'script_validado'), (51, 1, 'script_validado'), (51, 2, 'script_validado'), 
+(52, 1, 'script_validado'), (52, 2, 'script_validado'), (53, 1, 'script_validado'), (53, 2, 'script_validado'), (54, 1, 'script_validado'), 
+(55, 1, 'script_validado'), (55, 2, 'script_validado'), (55, 4, 'script_validado'), (56, 1, 'script_validado'), (56, 2, 'script_validado'), 
+(56, 4, 'script_validado'), (57, 1, 'script_validado'), (57, 2, 'script_validado'), (57, 4, 'script_validado'), (58, 1, 'script_validado'), 
+(58, 2, 'script_validado'), (59, 1, 'script_validado'), (59, 2, 'script_validado'), (59, 4, 'script_validado'), (60, 1, 'script_validado'), 
+(60, 2, 'script_validado'), (61, 1, 'script_validado'), (61, 2, 'script_validado'), (62, 1, 'script_validado'), (62, 2, 'script_validado'), 
+(63, 1, 'script_validado'), (63, 2, 'script_validado'), (64, 1, 'script_validado'), (64, 2, 'script_validado'), (64, 4, 'script_validado'), 
+(65, 1, 'script_validado'), (65, 2, 'script_validado'), (66, 1, 'script_validado'), (66, 2, 'script_validado'), (67, 2, 'script_validado'), 
+(68, 1, 'script_validado'), (68, 2, 'script_validado'), (69, 1, 'script_validado');
+
+-- Total: 10 Vínculos por Defecto (Instituciones sin otro órgano principal asignado)
+INSERT INTO institucion_organos (id_institucion, id_tipo_organo, usuario_creacion) VALUES
+(1, 1, 'script_validado'), (3, 1, 'script_validado'), (4, 1, 'script_validado'), (5, 1, 'script_validado'), (6, 1, 'script_validado'), 
+(7, 1, 'script_validado'), (9, 1, 'script_validado'), (10, 1, 'script_validado'), (11, 1, 'script_validado'), (19, 1, 'script_validado');
+
+Veredicto Final ✅
+El proceso ha concluido. Los datos son íntegros, consistentes y se adhieren estrictamente a las reglas y excepciones definidas. El sistema COCODI ahora cuenta con una base fundacional de datos confiable y verificada.
+

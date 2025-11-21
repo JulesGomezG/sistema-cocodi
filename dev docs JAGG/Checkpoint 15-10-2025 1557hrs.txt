@@ -1,0 +1,299 @@
+Checkpoint: Proyecto COCODI (Estado Actual y Funcional)
+Fecha: 15 de Octubre de 2025
+Este checkpoint representa el estado estable y funcional del proyecto tras la reparación del módulo de Sesiones.
+
+1. Arquitectura de Base de Datos y Carga Inicial (init.sql)
+Este script crea la estructura de la base de datos desde cero y carga los catálogos necesarios para que la aplicación funcione.
+
+SQL
+
+-- Borrado de tablas para un inicio limpio (opcional, útil en desarrollo)
+DROP TABLE IF EXISTS evidencias, sesiones, informes, recomendaciones, directorio_contactos, institucion_organos, tipos_organo_gobierno, tipos_sesion, tipos_informe, instituciones, responsables, ramos, dgs, naturalezas, naturalezas_juridicas_desglose CASCADE;
+
+-- === TABLAS DE CATÁLOGOS ===
+
+CREATE TABLE tipos_sesion (
+    id_tipo_sesion SERIAL PRIMARY KEY,
+    nombre_sesion VARCHAR(100) NOT NULL UNIQUE
+);
+
+CREATE TABLE tipos_informe (
+    id_tipo_informe SERIAL PRIMARY KEY,
+    nombre_informe VARCHAR(255) UNIQUE NOT NULL
+);
+
+CREATE TABLE responsables (
+    id_responsable SERIAL PRIMARY KEY,
+    nombre VARCHAR(255) NOT NULL,
+    activo BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE instituciones (
+    id_institucion SERIAL PRIMARY KEY,
+    nombre_institucion VARCHAR(255) NOT NULL,
+    siglas VARCHAR(50),
+    id_responsable INTEGER REFERENCES responsables(id_responsable)
+    -- Se pueden añadir más campos de catálogos como ramo, naturaleza, etc.
+);
+
+CREATE TABLE tipos_organo_gobierno (
+    id_tipo_organo SERIAL PRIMARY KEY,
+    nombre VARCHAR(255) NOT NULL,
+    id_padre INTEGER REFERENCES tipos_organo_gobierno(id_tipo_organo),
+    activo BOOLEAN DEFAULT TRUE
+);
+
+-- Tabla de Vínculo entre Institución y Órgano
+CREATE TABLE institucion_organos (
+    id_institucion INTEGER REFERENCES instituciones(id_institucion),
+    id_tipo_organo INTEGER REFERENCES tipos_organo_gobierno(id_tipo_organo),
+    PRIMARY KEY (id_institucion, id_tipo_organo)
+);
+
+-- === TABLAS OPERATIVAS ===
+
+CREATE TABLE sesiones (
+    id_sesion SERIAL PRIMARY KEY,
+    id_institucion INTEGER NOT NULL REFERENCES instituciones(id_institucion),
+    id_tipo_organo INTEGER NOT NULL REFERENCES tipos_organo_gobierno(id_tipo_organo),
+    id_tipo_sesion INTEGER NOT NULL REFERENCES tipos_sesion(id_tipo_sesion),
+    año INTEGER NOT NULL,
+    numero_ordinal INTEGER, -- Para 1ra, 2da, 3ra, 4ta sesión
+    estatus VARCHAR(50) NOT NULL CHECK (estatus IN ('Programada', 'Realizada', 'Cancelada')),
+    nombre_oficial_sesion VARCHAR(255),
+    fecha_programada DATE,
+    fecha_realizada DATE,
+    usuario_creacion VARCHAR(100) DEFAULT 'sistema',
+    fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    usuario_actualizacion VARCHAR(100),
+    fecha_actualizacion TIMESTAMP WITH TIME ZONE,
+    activo BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE informes (
+    id_informe SERIAL PRIMARY KEY,
+    id_institucion INTEGER REFERENCES instituciones(id_institucion),
+    id_tipo_organo INTEGER REFERENCES tipos_organo_gobierno(id_tipo_organo),
+    id_tipo_informe INTEGER REFERENCES tipos_informe(id_tipo_informe),
+    periodo_reportado INTEGER,
+    periodicidad VARCHAR(50) DEFAULT 'Anual',
+    fecha_informe DATE,
+    descripcion TEXT,
+    recomendaciones_emitidas INTEGER DEFAULT 0,
+    recomendaciones_atendidas INTEGER DEFAULT 0,
+    usuario_creacion VARCHAR(100) DEFAULT 'sistema',
+    fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    activo BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE evidencias (
+    id_evidencia SERIAL PRIMARY KEY,
+    parent_id INTEGER NOT NULL,
+    parent_type VARCHAR(50) NOT NULL, -- 'sesion', 'informe', 'recomendacion'
+    nombre_archivo VARCHAR(255) NOT NULL,
+    url_almacenamiento TEXT NOT NULL,
+    fecha_carga TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    activo BOOLEAN DEFAULT TRUE
+);
+
+-- === CARGA INICIAL DE CATÁLOGOS ===
+
+INSERT INTO tipos_sesion (id_tipo_sesion, nombre_sesion) VALUES
+(1, 'Ordinaria'),
+(2, 'Extraordinaria');
+
+INSERT INTO tipos_informe (id_tipo_informe, nombre_informe) VALUES
+(1, 'Informe de Autoevaluación'),
+(2, 'Informe de Estados Financieros'),
+(3, 'RAAD');
+
+-- Agregar aquí los INSERTs para responsables, instituciones, organos, etc.
+-- Ejemplo:
+INSERT INTO responsables (id_responsable, nombre) VALUES (1, 'Responsable Ejemplo A'), (2, 'Responsable Ejemplo B');
+INSERT INTO instituciones (id_institucion, nombre_institucion, siglas, id_responsable) VALUES (1, 'SECRETARÍA DE EJEMPLO', 'SEJ', 1);
+INSERT INTO tipos_organo_gobierno (id_tipo_organo, nombre) VALUES (1, 'Consejo de Administración'), (2, 'Comité de Auditoría');
+INSERT INTO institucion_organos (id_institucion, id_tipo_organo) VALUES (1, 1), (1, 2);
+
+2. Módulo de Carga Masiva (Sesiones)
+El endpoint y la función de procesamiento en app.py son robustos para la carga de sesiones, incluyendo la sanitización de datos para evitar errores de coincidencia.
+
+Archivo: app.py
+
+Python
+
+# Esta es la función clave para procesar el archivo de sesiones
+def process_sesiones_file(cur, file, mapeo_datos):
+    """
+    Procesa, valida e inserta los datos del archivo de sesiones.
+    Usa sanitización profunda para evitar errores de coincidencia por espacios.
+    """
+    filename = file.filename.lower()
+    try:
+        if filename.endswith('.xlsx'):
+            df = pd.read_excel(file)
+        elif filename.endswith('.csv'):
+            df = pd.read_csv(file, encoding='latin-1')
+        else:
+            return {"status": "error", "message": "Formato de archivo no soportado. Por favor, suba un .xlsx o .csv"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error al leer el archivo: {str(e)}"}
+
+    df.columns = [str(col).strip().upper() for col in df.columns]
+    df = df[~(df['INSTITUCIÓN'] == 'INSTITUCIÓN')]
+    df.drop_duplicates(subset=['INSTITUCIÓN', 'TIPO DE ÓRGANO COLEGIADO', 'FECHA'], keep='first', inplace=True)
+    df.reset_index(drop=True, inplace=True)
+
+    for index, row in df.iterrows():
+        try:
+            nombre_inst_raw = str(row['INSTITUCIÓN'])
+            nombre_org_raw = str(row['TIPO DE ÓRGANO COLEGIADO'])
+            
+            nombre_inst_sanitizado = re.sub(r'\s+', ' ', nombre_inst_raw.replace('\xa0', ' ')).strip().upper()
+            nombre_org_sanitizado = re.sub(r'\s+', ' ', nombre_org_raw.replace('\xa0', ' ')).strip().upper()
+
+            institucion_mapeada = mapeo_datos['instituciones'].get(nombre_inst_sanitizado)
+            organo_mapeado = mapeo_datos['organos'].get(nombre_org_sanitizado)
+
+            if not institucion_mapeada or not organo_mapeado:
+                raise ValueError(f"No se encontró un catálogo oficial para: '{nombre_inst_raw}' | '{nombre_org_raw}'.")
+
+            id_institucion = institucion_mapeada['id']
+            id_tipo_organo = organo_mapeado['id']
+            
+            sql_check = "SELECT 1 FROM institucion_organos WHERE id_institucion = %s AND id_tipo_organo = %s"
+            cur.execute(sql_check, (id_institucion, id_tipo_organo))
+            if cur.fetchone() is None:
+                raise ValueError(f"La combinación '{institucion_mapeada['nombre_oficial']}' y '{organo_mapeado['nombre_oficial']}' no es válida.")
+
+            tipo_sesion_str = str(row.get('TIPO DE SESIÓN', '')).strip().upper()
+            id_tipo_sesion = 2 if 'EXTRAORDINARIA' in tipo_sesion_str else 1
+            fecha_sesion = pd.to_datetime(row['FECHA']).strftime('%Y-%m-%d')
+            nombre_oficial = f"Sesión Histórica - {tipo_sesion_str.title()}"
+            
+            sql_insert = """
+                INSERT INTO sesiones (id_institucion, id_tipo_organo, id_tipo_sesion, fecha_realizada, año, estatus, usuario_creacion, nombre_oficial_sesion)
+                VALUES (%s, %s, %s, %s, %s, 'Realizada', 'carga_masiva', %s);
+            """
+            cur.execute(sql_insert, (id_institucion, id_tipo_organo, id_tipo_sesion, fecha_sesion, int(row['AÑO']), nombre_oficial))
+
+        except Exception as e:
+            return {"status": "error", "message": f"Error en la fila {index + 2}: {str(e)}"}
+    
+    return {"status": "success", "message": f"Se procesaron e insertaron {len(df)} registros de sesiones."}
+3. Módulo de Sesiones (Reparado)
+Este módulo ahora permite registrar correctamente tanto sesiones ordinarias como extraordinarias.
+
+a) Backend (app.py)
+La función crear_sesion_ordinaria fue la clave de la reparación en el backend. Ahora realiza un INSERT en lugar de un UPDATE fallido.
+
+Python
+
+@app.route('/api/sesiones/ordinaria', methods=['POST'])
+def crear_sesion_ordinaria():
+    """Crea una nueva sesión ordinaria realizada."""
+    data = request.form.to_dict()
+    required_fields = ['año', 'institucion_id', 'organo_id', 'numero_sesion_oficial', 'fecha_realizada']
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Faltan campos para crear sesión ordinaria"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+                INSERT INTO sesiones (
+                    año, id_institucion, id_tipo_organo, id_tipo_sesion,
+                    estatus, nombre_oficial_sesion, fecha_realizada, usuario_creacion
+                ) VALUES (%s, %s, %s, 1, 'Realizada', %s, %s, %s) RETURNING id_sesion;
+            """
+            cur.execute(sql, (
+                data['año'], data['institucion_id'], data['organo_id'],
+                data['numero_sesion_oficial'], data['fecha_realizada'], data.get('usuario_creacion', 'sistema')
+            ))
+            new_id = cur.fetchone()[0]
+            conn.commit()
+            return jsonify({"message": "Sesión ordinaria creada.", "id_sesion": new_id}), 201
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en crear_sesion_ordinaria: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+b) HTML (index.html)
+La causa raíz del error estaba aquí. Corregimos el atributo name del campo oculto para que coincidiera con su id, permitiendo que el FormData en JavaScript lo leyera correctamente.
+
+HTML
+
+<form id="ejecucion-form" class="modal-form">
+    <input type="hidden" id="id_calendario_hidden" name="id_calendario_hidden">
+    
+    <input type="hidden" id="id_ejecucion_hidden" name="id_ejecucion_hidden">
+    
+    <div><label>Número de Oficio:</label><input type="text" name="numero_sesion_oficial" required></div>
+    <div><label>Fecha Real de Ejecución:</label><input type="date" name="fecha_real" required></div>
+    </form>
+c) Frontend (app.js)
+Con el HTML corregido, la lógica de decisión en handleEjecucionSubmit ahora funciona perfectamente, distinguiendo entre registrar una sesión programada (id de texto), editar una existente (id numérico) o crear una extraordinaria (sin id).
+
+JavaScript
+
+async function handleEjecucionSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const files = fileManagers['sesion-files-input'].getFiles();
+    formData.delete('files');
+
+    const idSesion = formData.get('id_calendario_hidden'); 
+    
+    const esSesionExistente = idSesion && !isNaN(parseInt(idSesion));
+    const esSesionProgramada = idSesion && typeof idSesion === 'string' && idSesion.startsWith('programada_');
+
+    let url, method, successMessage;
+
+    if (esSesionProgramada) {
+        // RUTA CORRECTA: Registrar una sesión ORDINARIA que estaba "Programada".
+        url = '/api/sesiones/ordinaria';
+        method = 'POST';
+        successMessage = 'Sesión ordinaria registrada exitosamente.';
+        formData.append('año', document.getElementById('filtro-año').value);
+        formData.append('institucion_id', document.getElementById('filtro-institucion').value);
+        formData.append('organo_id', document.getElementById('filtro-organo').value);
+        formData.append('fecha_realizada', formData.get('fecha_real'));
+    } else if (esSesionExistente) {
+        // RUTA CORRECTA: Editar una sesión que ya estaba "Realizada".
+        url = `/api/sesiones/${idSesion}`;
+        method = 'PUT';
+        successMessage = 'Sesión actualizada exitosamente.';
+        formData.append('nombre_oficial_sesion', formData.get('numero_sesion_oficial'));
+        formData.append('fecha_realizada', formData.get('fecha_real'));
+    } else {
+        // RUTA CORRECTA: Crear una sesión EXTRAORDINARIA desde cero.
+        url = '/api/sesiones/extraordinaria';
+        method = 'POST';
+        successMessage = 'Sesión extraordinaria registrada exitosamente.';
+        formData.append('año', document.getElementById('filtro-año').value);
+        formData.append('institucion_id', document.getElementById('filtro-institucion').value);
+        formData.append('organo_id', document.getElementById('filtro-organo').value);
+        formData.append('fecha_realizada', formData.get('fecha_real'));
+    }
+    
+    try {
+        const response = await fetchAPI(url, { method, body: formData });
+        const sesionAfectadaId = response.id_sesion;
+        if (files.length > 0 && sesionAfectadaId) {
+            const fileFormData = new FormData();
+            files.forEach(file => fileFormData.append('files', file));
+            fileFormData.append('parent_type', 'sesion');
+            fileFormData.append('parent_id', sesionAfectadaId);
+            await fetchAPI('/api/upload', { method: 'POST', body: fileFormData });
+        }
+        form.reset();
+        document.getElementById('ejecucion-modal').style.display = 'none';
+        showNotification(successMessage);
+        buscarCalendario();
+    } catch (error) {   
+        console.error('Error al guardar sesión:', error);    
+        showNotification(`Error: ${error.message}`, 'error');
+    }
+}

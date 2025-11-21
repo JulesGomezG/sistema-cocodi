@@ -1,0 +1,70 @@
+Checkpoint del Taller: Depuración del Módulo Dashboard
+
+Proyecto: Taller de Desarrollo COCODI
+Fecha: 12 de noviembre de 2025
+Participantes: Equipo de Desarrollo (Full-Stack/QA)
+Misión: Diagnosticar y reparar la funcionalidad completa de la section-dashboard, incluyendo la "Vista Global" (Tendencia) y la "Vista Detallada" (Widgets y Comparativa de Ramo).
+
+1. Objetivo Inicial y Origen del Problema
+
+El objetivo era asegurar que ambos modos del Dashboard (Global y Detallado) estuvieran 100% funcionales tras la migración al nuevo esquema de base de datos SSOT (Single Source of Truth).
+
+Identificamos tres problemas raíz distintos:
+
+Problema de UI (Vista Global): El widget de "Tendencia Anual" cargaba los datos (ddTendenciaSesionesExtData), pero el botón "Sesiones Ext." no respondía al clic. Los demás botones de tendencia sí funcionaban.
+
+Error de Backend (Vista Detallada - HTTP 500): Al seleccionar filtros (Año y DG) en la "Vista Detallada", todos los widgets mostraban "Error". La consola del navegador confirmaba un HTTP 500 (INTERNAL SERVER ERROR) proveniente del endpoint /api/dashboard/stats.
+
+Error de Renderizado (Vista Detallada - Ramo): Una vez solucionado el HTTP 500, al entrar a la sub-vista "Ver Comparativas del Ramo", los gráficos de barras horizontales (Sesiones Ord., Sesiones Ext., % Avance) no se dibujaban, y el tooltip del gráfico "% Avance" estaba defectuoso.
+
+2. Solución Implementada
+
+Para resolver esta cadena de errores, se implementaron las siguientes soluciones en los artefactos correspondientes:
+
+1. En app.py (Backend):
+
+Se refactorizó por completo la función get_dashboard_stats (endpoint /api/dashboard/stats).
+
+Eliminación de Lógica Híbrida: Se removió toda la lógica de HistoricRecs que intentaba consultar las columnas recomendaciones_emitidas y recomendaciones_atendidas (ahora eliminadas) de la tabla informes.
+
+Adopción de SSOT: Todas las consultas de KPIs de recomendaciones (sql_kpi_recs, sql_grafico_avance_recs_tipo, sql_kpi_recs_comp, sql_inst_comparison) ahora calculan los totales contando directamente desde la tabla recomendaciones, respetando el nuevo esquema.
+
+Corrección de Alias SQL: Se corrigió un error de sintaxis en la consulta sql_informes_faltantes, cambiando el alias incorrecto e.id_institucion por el correcto e.institucion_id en el LEFT JOIN.
+
+2. En app.js (Frontend):
+
+Error de Tendencia: Se eliminó la función setupTendenciaToggle duplicada e incorrecta que se encontraba al final del archivo (un error de hoisting). Se reemplazó por la versión correcta que incluye los listeners para los cuatro botones de tendencia (Sesiones Ord., Sesiones Ext., Informes, Recs).
+
+Error de Renderizado (Ramo):
+
+Se añadieron las 5 funciones de renderizado que faltaban: createHorizontalBarChart (helper genérico) y las 4 funciones que lo utilizan (renderDetalleInstSesionesOrd, renderDetalleInstSesionesExt, renderDetalleInstRecsAvance, renderDetalleInstInformes).
+
+Se actualizó cargarDatosDashboardDetallado para que, al detectar la presencia de data.institution_comparison_stats, llame a estas 4 nuevas funciones de renderizado.
+
+Error de Tooltip (Ramo):
+
+Se corrigió la función createHorizontalBarChart para asegurar que la lógica de formateo (.replace('.0%','_')) se aplicara tanto al datalabels.formatter como al tooltip.callbacks.label, solucionando el fallo en el tooltip de "% Avance".
+
+3. Proceso de Depuración (Iteraciones Clave)
+
+El diagnóstico fue un proceso iterativo que requirió análisis de frontend, backend y base de datos:
+
+Iteración 1 (Error de Clic - app.js): Se identificó que app.js contenía dos definiciones de setupTendenciaToggle. La última (incorrecta) estaba sobrescribiendo la primera (correcta). Solución: Se reemplazó la función incorrecta por la correcta, solucionando el bug del botón "Sesiones Ext.".
+
+Iteración 2 (Error HTTP 500 - app.py): Se analizó la traza de la consola del navegador. El init.sql confirmó la migración a SSOT. Diagnóstico: El endpoint get_dashboard/stats consultaba columnas (recomendaciones_emitidas) que ya no existían en la tabla informes. Solución: Se reemplazó la función get_dashboard_stats por una versión 100% SSOT.
+
+Iteración 3 (Error HTTP 500 Persistente - app.py): El error 500 continuaba. Se solicitó el log de cocodi_db (PostgreSQL), que reveló un error de sintaxis: column e.id_institucion does not exist. Solución: Se corrigió el alias en la consulta sql_informes_faltantes dentro de get_dashboard_stats.
+
+Iteración 4 (Error de Renderizado - app.js): El error 500 desapareció y los datos llegaron al frontend, pero los 4 gráficos de "Comparativa de Ramo" no se dibujaban. Diagnóstico: cargarDatosDashboardDetallado no estaba llamando a las funciones de renderizado para esa sub-vista. Solución: Se añadieron las 5 funciones helper (createHorizontalBarChart, etc.) a app.js y se invocaron desde cargarDatosDashboardDetallado.
+
+Iteración 5 (Error de Tooltip - app.js): Los gráficos se dibujaron, pero el tooltip de "% Avance" fallaba. Diagnóstico: Error de typo en la lógica de formato de createHorizontalBarChart (la lógica de formateo solo estaba en datalabels, no en tooltip). Solución: Se refactorizó el helper para que el tooltip usara la misma lógica de formateo.
+
+4. Estado Final y Artefactos
+
+Estado: El módulo section-dashboard (Vista Global y Vista Detallada) se encuentra Estable y 100% Funcional. Los problemas de UI, lógica de backend (SSOT) y renderizado de gráficos han sido resueltos.
+
+Artefactos Modificados:
+
+app.py (Backend)
+
+app.js (Frontend)

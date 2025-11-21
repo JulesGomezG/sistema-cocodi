@@ -1,0 +1,75 @@
+
+Checkpoint: Refinamiento de "Crear Nuevo Informe" (COCODI v2.1)
+1. Objetivo Inicial y Origen del Problema
+La misión comenzó con el objetivo de analizar, diseñar y refinar la funcionalidad de "Crear Un Nuevo Informe" en la sección de Informes, partiendo de una base de código estable tras implementar la cascada de filtros DG -> Ramo -> Responsable.
+
+El análisis inicial reveló varios problemas:
+
+Formulario Incompleto: Al modal #informe-modal le faltaban campos clave (DG, Ramo, Rec. Emitidas, Rec. Atendidas).
+
+Lógica de Cascada Incorrecta: La lógica JavaScript para poblar los selects del modal seguía una jerarquía antigua y no incluía todos los niveles.
+
+Tipo de Informe Estático: La lista de Tipos de Informe estaba codificada en el HTML (hardcoded) y no se filtraba según el contexto.
+
+Grid Desactualizado: La tabla principal #informes-table no mostraba las columnas en el orden solicitado (Año, DG Siglas, No. Ramo, etc.).
+
+2. Solución Implementada
+Tras un análisis conjunto y varias iteraciones, se implementó una solución full-stack robusta:
+
+Base de Datos (init.sql):
+
+Se creó la tabla institucion_tipo_informe_valido para gestionar explícitamente qué Tipos de Informe puede generar cada Institución.
+
+Se pobló esta tabla usando scripts SQL basados en las reglas de negocio validadas (Naturaleza -> Tipo Informe + Excepción SESNA), confirmadas contra datos históricos.
+
+Backend (app.py):
+
+Se modificó el endpoint GET /api/tipos-informe para que ahora requiera id_institucion y consulte la nueva tabla institucion_tipo_informe_valido.
+
+Se ajustó el endpoint GET /api/informes para devolver los campos necesarios para el grid (siglas_dg, numero_ramo) y para la función "Editar" (id_dg, id_ramo, id_responsable).
+
+Frontend (index.html):
+
+Se reestructuró el modal #informe-modal, añadiendo los selects para DG y Ramo, los inputs numéricos para Recomendaciones, y asegurando IDs correctos para la integración con JavaScript.
+
+Se actualizó el <thead> de la tabla #informes-table con el orden de columnas final.
+
+Frontend (app.js):
+
+Se refactorizó la función initReportesModule para gestionar dos cascadas: una para los filtros principales (filtro-informe-) y otra para el modal (form-informe-).
+
+Se añadió un listener específico al select de Institución (#form-informe-institucion) dentro del modal, que llama al endpoint /api/tipos-informe?id_institucion=X para poblar dinámicamente los Tipos de Informe válidos.
+
+Se corrigió la función handleNuevoInformeClick para eliminar llamadas API erróneas al abrir el modal.
+
+Se mejoró la función handleEditInforme para poblar secuencialmente toda la cascada del modal y seleccionar los valores correctos al editar.
+
+Se actualizó la función cargarInformes para renderizar correctamente las filas (tr.innerHTML) del grid según las nuevas columnas.
+
+3. Proceso de Depuración (Iteraciones Clave)
+El desarrollo no fue lineal y requirió varias correcciones importantes:
+
+Decisión Arquitectónica: Se optó por usar una tabla de vinculación (institucion_tipo_informe_valido) en lugar de lógica "quemada" en el backend para gestionar los tipos de informe válidos, priorizando la mantenibilidad a largo plazo.
+
+Validación Cruzada: Se realizó una validación exhaustiva de los vínculos institucion_organos y institucion_tipo_informe_valido contra reglas de negocio, datos históricos y el init.sql para asegurar la coherencia de los datos.
+
+Errores de Backend: Se solucionaron errores de SyntaxError (caracteres invisibles, indentación) y AssertionError (funciones duplicadas) en app.py que impedían el arranque del servidor.
+
+Errores de Frontend: Se corrigieron ReferenceError (función poblarSelectConOpciones faltante) y SyntaxError (carácter errante) en app.js que rompían la carga del script.
+
+Errores de Lógica: Se ajustó la lógica del modal para evitar llamadas API prematuras (id_institucion requerido) y se refinó la interacción entre setupCascadingFilters y el listener específico Institución -> Tipo Informe.
+
+Errores Visuales: Se corrigió el innerHTML del grid #informes-table para eliminar caracteres errantes y usar los campos correctos (siglas_dg, numero_ramo).
+
+4. Estado Final y Artefactos
+La funcionalidad "Crear Nuevo Informe" está completa, funcional y validada. El grid de la sección "Informes" también está actualizado. ✅
+
+Los artefactos modificados en esta misión son:
+
+init.sql (Nueva tabla institucion_tipo_informe_valido y sus INSERTs)
+
+app.py (Endpoint GET /api/tipos-informe modificado, ajuste en GET /api/informes)
+
+index.html (Modal #informe-modal reestructurado, <thead> de #informes-table actualizado)
+
+app.js (Refactorización de initReportesModule, handleNuevoInformeClick, handleEditInforme, cargarInformes; añadido poblarSelectConOpciones)

@@ -1,0 +1,77 @@
+
+
+Checkpoint del Taller de Desarrollo (Estado Actual)
+Proyecto: Sistema de Gestión COCODI. Dashboard
+29-10-2025 1800hrs
+
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Reemplazar el widget KPI "Informes Entregados" (que solo mostraba un número total) por un gráfico de dona ("Informes Entregados por Tipo") que mostrara el desglose por tipo (RAAD, Autoevaluación, Estados Financieros). 🍩
+
+Origen del Problema: Después de implementar los cambios en app.py, index.html y app.js, el nuevo widget se quedaba permanentemente en "Cargando...", y la consola del navegador mostraba el error: Canvas 'dd-chart-informes-tipo' no encontrado..
+
+2. Solución Implementada
+Se realizaron modificaciones en los tres archivos principales:
+
+Backend (app.py):
+
+Se modificó la ruta /api/dashboard/stats.
+
+Se eliminó la consulta SQL que calculaba el KPI total de informes.
+
+Se añadió una nueva consulta SQL que calcula el conteo de informes agrupados por tipo (nombre_informe).
+
+Los resultados de esta nueva consulta se devuelven en la respuesta JSON bajo la clave grafico_informes_por_tipo.
+
+HTML (index.html):
+
+Se localizó el div que contenía el antiguo KPI (id="dd-kpi-informes").
+
+Se reemplazó completamente ese div por una nueva estructura que incluye:
+
+Un título <h3>Informes Entregados por Tipo</h3>.
+
+Un elemento <canvas> con el id="dd-chart-informes-tipo" donde se dibujará el gráfico.
+
+Frontend (app.js):
+
+Se añadió una variable global ddChartInformesTipo = null; para guardar la instancia del gráfico.
+
+Se actualizó la función limpiarWidgetsDetallados para destruir y limpiar este nuevo canvas.
+
+Se actualizó la función cargarDatosDashboardDetallado:
+
+Se eliminó la llamada a renderDetalleKPI para el antiguo dd-kpi-informes.
+
+Se añadió una llamada a la nueva función renderDetalleGraficoInformesPorTipo(data.grafico_informes_por_tipo || []);.
+
+Se creó la función renderDetalleGraficoInformesPorTipo(data) que contiene la lógica para dibujar el gráfico de dona usando Chart.js y los datos recibidos del backend.
+
+3. Proceso de Depuración (Iteraciones Clave)
+Error Inicial Identificado: Canvas 'dd-chart-informes-tipo' no encontrado. en app.js. Esto indicaba que el JavaScript no encontraba el elemento HTML.
+
+Verificación HTML (Archivo): Revisamos el código del index.html en tu editor y confirmamos visualmente que el <canvas> con el ID correcto sí estaba presente en el archivo guardado.
+
+Verificación JS: Revisamos la función renderDetalleGraficoInformesPorTipo y confirmamos que buscaba el ID correcto (dd-chart-informes-tipo).
+
+Caché del Navegador: Sospechamos que el navegador usaba una versión vieja del HTML. Se forzó la recarga (Ctrl+Shift+R) y se activó "Inhabilitar caché" en las herramientas de desarrollador. El error persistió.
+
+Caché del Servidor/Docker: Sospechamos que Flask o Docker podrían estar sirviendo una versión vieja del index.html. Se reinició el contenedor de cocodi_backend varias veces. El error persistió.
+
+Verificación HTML (Navegador): Usamos la pestaña "Elementos" (Inspector) del navegador y descubrimos que el HTML que el navegador realmente estaba renderizando NO contenía el <canvas>, confirmando el problema de caché (el navegador veía el HTML viejo).
+
+Caracteres Invisibles: Se revisó el index.html en busca de caracteres U+00A0 que pudieran corromper el ID, pero el código parecía limpio en las últimas revisiones.
+
+Prueba de Timing: Se añadió un setTimeout en app.js para retrasar la renderización, descartando problemas de tiempo de ejecución. El error persistió.
+
+4. Estado Final y Artefactos
+Estado: El widget sigue mostrando "Cargando..." y la consola sigue reportando Canvas 'dd-chart-informes-tipo' no encontrado..
+
+Diagnóstico Más Probable: A pesar de todos los intentos, el navegador sigue recibiendo y renderizando una versión obsoleta del archivo index.html que no contiene el <canvas id="dd-chart-informes-tipo">. La causa raíz está en cómo se sirve o se cachea ese archivo estático, probablemente a nivel del servidor web (Flask/Werkzeug en modo debug) o la configuración de volúmenes/build de Docker.
+
+Artefactos (Código):
+
+app.py: Contiene la función get_dashboard_stats actualizada con la nueva consulta.
+
+index.html: El archivo en tu disco contiene el bloque correcto con el <canvas>.
+
+app.js: Contiene la variable global, la limpieza actualizada y la nueva función renderDetalleGraficoInformesPorTipo.

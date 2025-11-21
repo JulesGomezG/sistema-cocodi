@@ -1,0 +1,64 @@
+Checkpoint del Proyecto COCODI: Cierre de Fase 2
+Fecha: 7 de Octubre de 2025
+Estado: Fase de Análisis y Estrategia Concluida. Listo para Desarrollo.
+
+Resumen Ejecutivo
+Se da por concluida la Fase 2 del proyecto, correspondiente a la Estrategia y Validación para la Carga Masiva de Datos Históricos. Se ha realizado un análisis exhaustivo de los datos de sesiones e informes, y se han definido todas las reglas de negocio, mapeo y limpieza necesarias para una migración de datos exitosa y sin errores.
+
+Este documento consolida el plan final y sirve como la "fuente de verdad" para la implementación del módulo de carga masiva en el aplicativo.
+
+1. Artefactos Finales de Referencia
+La implementación deberá basarse exclusivamente en los siguientes archivos, que han sido validados y corregidos:
+
+Script de Base de Datos: init_final_v22.sql
+
+Contiene la estructura final de la BD y la carga de catálogos y vínculos, incluyendo la corrección crítica para CIASI.
+
+Diccionario de Mapeo: mapeo_final.json
+
+Contiene todos los alias para nombres de instituciones y tipos de órgano necesarios para la traducción de datos.
+
+2. Estrategia de Carga para Sesiones Históricas
+El módulo de carga deberá implementar la siguiente lógica para el archivo de sesiones:
+
+a. Limpieza de Datos
+Antes del procesamiento, se deben aplicar las siguientes reglas:
+
+Ignorar Registro Inválido: La fila que contenga ("INSTITUCION", "COCODI", "RESPONSABLE") (identificada previamente como la #297) debe ser descartada.
+
+Eliminar Duplicado: La segunda ocurrencia del registro (IMIPAS, JUNTA DE GOBIERNO, 12/12/2024) (identificada como la fila #27) debe ser descartada para evitar errores de duplicidad.
+
+b. Mapeo y Procesamiento
+Utilizar mapeo_final.json para traducir los nombres de INSTITUCIÓN y TIPO DE ÓRANO COLEGIADO a los nombres oficiales de la base de datos para obtener sus respectivos IDs.
+
+Normalizar los valores de la columna ORDINARIA/EXTRAORDINARIA (ej. a mayúsculas) para obtener el id_tipo_sesion.
+
+Convertir las fechas de formato dd/mm/yyyy a YYYY-MM-DD.
+
+c. Validación
+Verificar que cada par (id_institucion, id_tipo_organo) exista en la tabla institucion_organos antes de intentar la inserción. La base init_final_v22.sql garantiza que todas las combinaciones válidas pasarán esta prueba.
+
+3. Estrategia de Carga para Informes Históricos
+El módulo de carga deberá implementar la siguiente lógica para el archivo de informes:
+
+a. Parsing de Datos
+La columna RECOMENDACIÓN_A: debe ser analizada para extraer:
+
+El tipo de informe: ("RAAD", "Informe de Autoevaluación" o "Informe de Estados Financieros").
+
+El periodo reportado: El año de 4 dígitos contenido en la cadena (ej. 2024). Si no se encuentra, se tomará el año de la columna Fecha.
+
+b. Regla de Inferencia (Crítica)
+Dado que el archivo de informes no especifica el órgano emisor, se debe inferir el id_tipo_organo aplicando la siguiente regla de negocio validada:
+
+SI el tipo de informe es RAAD, entonces el id_tipo_organo es 1 (COCODI).
+
+SI el tipo de informe es Informe de Autoevaluación o Informe de Estados Financieros, entonces el id_tipo_organo es 2 (Órgano de Gobierno).
+
+c. Mapeo y Validación
+Utilizar mapeo_final.json para obtener el id_institucion.
+
+Verificar que el par (id_institucion, id_tipo_organo inferido) exista en la tabla institucion_organos antes de la inserción.
+
+4. Próximos Pasos
+El análisis está completo. La siguiente fase es el Desarrollo del Aplicativo, comenzando por el módulo de carga masiva que implemente la lógica descrita en este documento y en los pseudocódigos (pseudocodigo_carga.py y pseudocodigo_carga_informes.py).

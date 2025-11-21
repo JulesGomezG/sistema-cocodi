@@ -1,0 +1,88 @@
+
+
+Checkpoint: Fase A, Paso 1 - Carga Masiva (Finalizado)
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Reparar la ruta de Carga Masiva de Informes (/api/bulk-upload), que fallaba después de una migración de base de datos a una arquitectura SSOT (Single Source of Truth).
+
+Origen del Problema (El Hallazgo Clave): El problema era más complejo de lo que asumimos.
+
+Diagnóstico Inicial (Erróneo): Asumimos que las columnas de totales (recomendaciones_emitidas, recomendaciones_atendidas) habían sido eliminadas de la tabla informes.
+
+Diagnóstico Real (Descubierto Tarde): Tu recordatorio de que los CRUDs (Paso 2) estaban pendientes fue crucial. Al re-inspeccionar app.py, confirmamos que las rutas CRUD seguían usando esas columnas. Esto reveló la verdadera arquitectura: un modelo SSOT Híbrido.
+
+La "Verdad" (SSOT) vive en la tabla recomendaciones (los registros "hijo").
+
+Los "Contadores" (recomendaciones_emitidas, atendidas) se mantuvieron en la tabla informes (el "padre") como valores denormalizados (cacheados) para lecturas rápidas.
+
+El Defecto Real: El código de Carga Masiva original estaba roto porque solo escribía en informes pero no creaba los registros "hijo" en recomendaciones. Nuestra primera corrección (v3) hizo lo contrario: creó los "hijos" pero dejó de escribir en los contadores "padre".
+
+2. Solución Implementada (La Lógica Híbrida)
+Implementamos una solución completa (la versión v4) en la función process_informes_file que satisface la arquitectura híbrida.
+
+Para cada fila del archivo Excel, el código ahora ejecuta la siguiente transacción 1+N:
+
+Operación 1 (Padre): Ejecuta un INSERT en la tabla informes. Este INSERT sí incluye los valores de recomendaciones_emitidas y recomendaciones_atendidas del Excel, actualizando los contadores denormalizados.
+
+Captura de ID: Usa RETURNING informe_ssot_id para obtener el ID del informe "padre" recién creado.
+
+Operación N (Hijos): Entra en un bucle y ejecuta N INSERTs en la tabla recomendaciones, creando los registros SSOT "reales" (estatus='Atendida' o 'Pendiente' y placeholders 'N/A'), todos vinculados al informe_ssot_id del padre.
+
+3. Proceso de Depuración (Iteraciones Clave)
+Nuestro proceso de prueba y validación fue fundamental para descubrir la verdadera naturaleza del problema:
+
+Prueba 1 (Fallo NaT):
+
+Error: Error... No se encontró un catálogo oficial para la institución: 'NaT'.
+
+Diagnóstico: El archivo Excel tenía una fila vacía (la 107) que Pandas leía como NaT (Not a Time).
+
+Acción: "Endurecimos" process_informes_file con validación pd.isna() para capturar datos vacíos y dar un error claro.
+
+Prueba 2 (Fallo KeyError):
+
+Error: KeyError: 'TIPO DE ÓRGANO COLEGIADO'.
+
+Diagnóstico: Error de usuario (mi culpa) al seleccionar "Sesiones Históricas" pero subir un archivo de "Informes".
+
+Acción: "Endurecimos" process_sesiones_file con una validación de columnas al inicio para prevenir fallos por subir un archivo incorrecto.
+
+Prueba 3 (Fallo de Regresión):
+
+Error (en logs): AssertionError: ... obtener_recomendaciones y UndefinedColumn.
+
+Diagnóstico: (a) Una función duplicada en app.py por un mal pegado y (b) otras rutas (/api/informes, /api/recomendaciones) estaban rotas por los cambios de nombre del esquema.
+
+Acción: Eliminamos la función duplicada y reparamos manejar_informes y obtener_recomendaciones para que usaran los nuevos nombres de columna (ej. informe_ssot_id, institucion_id).
+
+Prueba 4 (Éxito de Carga):
+
+Resultado: Se procesaron 105 informes, creando un total de 317 recomendaciones.
+
+Diagnóstico: La carga v3 (que no actualizaba los contadores) funcionó.
+
+Prueba 5 (Validación de BBDD y REVERSIÓN):
+
+Error: ERROR: column "recomendaciones_emitidas" does not exist.
+
+Diagnóstico: Mi consulta de validación era errónea, pero reveló la verdad. Al darnos cuenta de que los CRUDs todavía usaban esas columnas, entendimos que debían existir y que nuestra solución v3 era incompleta.
+
+Acción: Implementamos la v4 de process_informes_file, restaurando la escritura de los contadores en la tabla informes (la solución híbrida).
+
+Prueba 6 (Validación Final de BBDD):
+
+Resultado: total_informes_creados: 105, total_recomendaciones_creadas: 317, total_informes_vinculados: 105, descripciones/areas_invalidas: 0, y Atendida: 170 / Pendiente: 147.
+
+Diagnóstico: Éxito total. Los datos en la BBDD coinciden perfectamente con la lógica híbrida SSOT.
+
+4. Estado Final y Artefactos Modificados
+Estado: Fase A, Paso 1 está 100% completado y validado. La Carga Masiva (Informes y Sesiones) es ahora robusta y sincroniza correctamente la lógica híbrida.
+
+Artefactos Modificados: app.py
+
+process_informes_file: Reemplazada por la versión v4 (Híbrida).
+
+process_sesiones_file: Reemplazada por la versión v2 (Hardening).
+
+manejar_informes: Parcheada para usar los nombres de columna SSOT y subconsultas de contadores.
+
+obtener_recomendaciones: Parcheada para usar los nombres de columna SSOT.

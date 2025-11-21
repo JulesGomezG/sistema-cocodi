@@ -1,0 +1,108 @@
+
+Checkpoint del Taller de Desarrollo (Estado Actual)
+Proyecto: Sistema de Gestión COCODI. Dashboard
+31-10-2025 1230hrs
+
+
+Checkpoint: Misión "Drill-Down de Ramo"
+1. Objetivo Inicial y Origen del Problema
+Objetivo Inicial: El objetivo era enriquecer la "Vista Detallada" del Dashboard (section-dashboard). Cuando un usuario filtrara por Año + DG + Ramo (pero sin una Institución), la vista debía:
+
+Mostrar los KPIs totales del Ramo (comportamiento existente).
+
+Mostrar la comparativa "Delegada vs. Comisaria" (comportamiento existente).
+
+[NUEVO] Añadir un nuevo contenedor, "Comparativa por Institución", que mostrara gráficos de barras comparando a todas las instituciones de ese Ramo en KPIs clave (Sesiones, % Avance Recs, Informes).
+
+Origen del Problema: La implementación inicial fue lógicamente correcta pero un fracaso en términos de UX.
+
+Saturación Vertical: La primera implementación apilaba la vista de KPIs (dd-normal-view), la vista de D vs C (dd-comparative-view) y la nueva vista de Instituciones (dd-institution-comparison-view), una encima de la otra. Esto creaba un scroll vertical masivo, volviendo la página inutilizable.
+
+Amontonamiento: Los 9 widgets de la vista normal (KPIs y gráficos) estaban en una cuadrícula de 3 columnas (minmax(300px, 1fr)), lo que provocaba que los gráficos de barras (como "Avance de Recomendaciones por Origen") se comprimieran, volviendo ilegibles las etiquetas (como se vio en image_f4f8f9.png).
+
+2. Solución Implementada
+Para resolver los problemas de UX y analíticos, implementamos una solución integral en tres frentes:
+
+Lógica de Intercambio (UX):
+
+Restauramos la lógica de "intercambio" (toggleDetailedSubView) en app.js.
+
+Nivel DG/Institución: El usuario solo ve la cuadrícula de 9 widgets (dd-normal-view).
+
+Nivel Ramo: El usuario ve la cuadrícula de 9 widgets y un botón: "Ver Comparativas del Ramo". Al hacer clic, la vista dd-normal-view se oculta, y en su lugar se muestran los dos reportes comparativos.
+
+Reorganización de la Vista "Normal" (Layout):
+
+Reestructuramos el index.html de dd-normal-view para seguir una narrativa de datos lógica, resolviendo el "amontonamiento" y el scroll excesivo.
+
+Fila 1 (4 cols): Focos Rojos | Informes Faltantes | Avance Recs % (Dona) | Sesiones Ord (KPI).
+
+Fila 2 (4 cols): Sesiones Ext (KPI) | Informes Entregados (Dona) | Avance Recs (Gráfico 2/4).
+
+Fila 3 (4 cols): Sesiones Ord (Gráfico 2/4) | Sesiones Ext (Gráfico 2/4).
+
+Mejora de la Vista "Comparativa por Institución" (Claridad Analítica):
+
+Backend (app.py): Modificamos la consulta sql_inst_comparison en get_dashboard_stats. En lugar de un "Total de Sesiones", la consulta ahora calcula sesiones_ordinarias y sesiones_extraordinarias por separado.
+
+Frontend (index.html): El contenedor dd-institution-comparison-view se diseñó como una cuadrícula 2x2 para máxima claridad.
+
+Frontend (app.js): Se crearon dos nuevas funciones de renderizado (renderDetalleInstSesionesOrd y renderDetalleInstSesionesExt) para poblar los dos nuevos gráficos de sesiones, resolviendo la inconsistencia analítica de agruparlas.
+
+3. Proceso de Depuración (Iteraciones Clave)
+El desarrollo de esta funcionalidad requirió múltiples iteraciones de depuración críticas:
+
+Errores de Generación de Código (Caracteres Inválidos): El problema más persistente. Múltiples bloques de código proporcionados (para app.py e index.html) contenían artefactos, caracteres de espacio inválidos (U+00A0) y texto basura (S, al, LOS, etc.), como se evidenció en las capturas de pantalla (image_f3b23f.png, image_f41b9f.png). Esto provocó SyntaxError en Python y HTML corrupto.
+
+Solución: Se realizó una limpieza manual y verificación estricta de cada bloque de código antes de la entrega final.
+
+Errores de JavaScript (TypeError y ReferenceError):
+
+TypeError: Cannot read properties of null (reading 'classList'): Ocurrió (según image_f5e55c.png) porque el div #dd-comparative-view fue eliminado accidentalmente del index.html, pero el app.js (en toggleDetailedSubView) intentaba acceder a él.
+
+ReferenceError: ddChartInstSesionesExt is not defined: Ocurrió porque el bloque de variables globales en app.js no se actualizó correctamente para incluir la nueva variable del gráfico.
+
+Solución: Se restauró el HTML faltante y se corrigió el bloque de declaración de variables globales en app.js.
+
+Depuración de Layout (UX):
+
+Gráfico "Amontonado": El gráfico "Avance de Recomendaciones por Origen de Informe" era ilegible (image_f4f8f9.png) porque era vertical y las etiquetas largas colisionaban.
+
+Solución: Se modificó la función renderDetalleAvanceRecsPorTipo en app.js para usar indexAxis: 'y', convirtiéndolo en un gráfico de barras horizontal.
+
+Distribución: El layout final (image_7095bb.png) requirió aplicar la clase widget-large (grid-column: span 2) a los gráficos de Avance y Sesiones Ordinarias para lograr la distribución 2/4 + 2/4 que solicitaste.
+
+4. Estado Final y Artefactos
+Estado: Misión Completada. La "Vista Detallada" ahora tiene un drill-down de Ramo funcional, analíticamente robusto y con una UX limpia.
+
+La vista "Normal" está organizada en una cuadrícula de 4 columnas que prioriza las alertas y agrupa lógicamente los KPIs y gráficos.
+
+Al hacer clic en "Ver Comparativas del Ramo", el usuario accede a una vista limpia de 2x2 que desglosa las Sesiones (Ord vs Ext) y los Informes (% Recs vs Conteo) por cada institución.
+
+Todos los errores de consola y artefactos de código han sido resueltos.
+
+Artefactos Modificados:
+
+index.html:
+
+Se reestructuró completamente el div#dd-normal-view al layout de 9 widgets en 3 filas (4-col, 4-col, 4-col).
+
+Se añadió y estructuró el div#dd-institution-comparison-view como una cuadrícula 2x2.
+
+Se restauró el div#dd-comparative-view.
+
+app.py:
+
+Se modificó get_dashboard_stats. La consulta sql_inst_comparison (dentro del if de Nivel Ramo) ahora calcula sesiones_ordinarias y sesiones_extraordinarias.
+
+app.js:
+
+Se corrigió el bloque de variables globales para incluir ddChartInstSesionesOrd y ddChartInstSesionesExt.
+
+Se actualizó limpiarWidgetsDetallados para limpiar los nuevos gráficos.
+
+Se actualizó cargarDatosDashboardDetallado para pre-renderizar los 4 nuevos gráficos de la vista comparativa.
+
+Se reemplazó renderDetalleInstSesiones por renderDetalleInstSesionesOrd y renderDetalleInstSesionesExt.
+
+Se modificó renderDetalleAvanceRecsPorTipo para ser un gráfico de barras horizontal (indexAxis: 'y').

@@ -1,0 +1,60 @@
+✅ Checkpoint: Taller de Desarrollo COCODI
+1. Objetivo Inicial y Origen del Problema
+Misión: Depurar la función get_dashboard_global_stats en app.py.
+
+Problema Inicial: El Dashboard de Vista Global mostraba datos incorrectos para el año 2025.
+
+Bug 1 (Total): El KPI de "Total Recomendaciones" mostraba 264, cuando el archivo fuente (nuestra "fuente de verdad" o SSOT) indicaba que debían ser 130.
+
+Bug 2 (Eficiencia Rota): El widget "Eficiencia por Origen" estaba roto. No mostraba barras para "Informe de Autoevaluación" ni "RAAD".
+
+2. Proceso de Depuración (Iteraciones Clave)
+Nuestro análisis conjunto nos llevó a los siguientes descubrimientos clave:
+
+Iteración 1: Descubrimiento de Duplicados. Tu consulta de "prueba de fuego" a la BD (SELECT ... WHERE inf.anio_informe = 2025) reveló 262 recomendaciones del tipo "Carga Masiva" (Universo 1).
+
+Iteración 2: Análisis del Archivo Fuente. Mi análisis de tu archivo de texto plano confirmó que la fuente de verdad para 2025 contenía 130 recomendaciones.
+
+Conclusión de QA: 262 es (aproximadamente) 130 * 2. La Carga Masiva se había ejecutado dos veces, duplicando los datos en la BD.
+
+Iteración 3: Descubrimiento de Lógica Híbrida. Tu consulta (Query 2) confirmó la existencia de 2 recomendaciones "Manuales" (Universo 2, donde informe_id IS NULL).
+
+Conclusión de QA: El bug de 264 quedó 100% explicado: 262 (Carga duplicada) + 2 (Manuales). El requisito de negocio era sumar ambos universos.
+
+Iteración 4: Descubrimiento de Gráficos Rotos (Ceros). Corregimos las consultas a una "Lógica Híbrida" (usando UNION ALL). Esto arregló el Bug 2 (Eficiencia Rota), pero reveló que los gráficos no mostraban las DGs con 0 valores (DG1, DG2, DG3).
+
+Iteración 5: Refactorización a CrossJoinBase. Para solucionar el problema de los ceros, refactorizamos todas las consultas del dashboard global (sql_sesiones_por_tipo_organo, sql_eficiencia_recs_por_tipo_dg_ssot, etc.) para usar un patrón CrossJoinBase + LEFT JOIN.
+
+Iteración 6: Corrección de Widget de Tendencia. Añadimos 4 nuevos endpoints de tendencia al backend (app.py). Diagnosticamos que el gráfico estaba vacío porque la lógica de app.js estaba en la vista incorrecta. Movimos la lógica (Promise.all para 5 endpoints) a la función cargarDatosDashboardGlobal.
+
+Iteración 7 (Actual): Los datos se están cargando correctamente (tu log confirma Datos tendencia (ses_ext) recibidos: Array(2)), pero el botón "Sesiones Ext." no responde al clic.
+
+3. Solución Implementada
+Para resolver todos los problemas de datos y lógica, implementamos lo siguiente:
+
+Backend (app.py):
+
+Refactorizamos get_dashboard_global_stats a una Lógica Híbrida (WITH ... UNION ALL ...) para sumar los dos universos de datos (Carga Masiva y Manuales).
+
+Refactorizamos las 3 consultas principales (sql_sesiones_por_tipo_organo, sql_recs_dg_ssot, sql_eficiencia_recs_por_tipo_dg_ssot) para usar un patrón CrossJoinBase + LEFT JOIN, garantizando que todas las DGs (incluidas las que tienen 0) se muestren siempre.
+
+Añadimos 4 nuevos endpoints (/api/dashboard/tendencia/...) para alimentar el widget de Tendencia Anual.
+
+Frontend (app.js y index.html):
+
+Limpiamos la BD con TRUNCATE y ejecutamos la Carga Masiva una sola vez, restaurando la base de datos a la fuente de verdad (130 recomendaciones).
+
+Añadimos el widget "Volumen de Recomendaciones por Origen" (HTML/JS).
+
+Añadimos el botón "Sesiones Ext." (HTML).
+
+Refactorizamos cargarDatosDashboardGlobal para cargar los 5 endpoints de datos (global_stats + 4 de tendencia) en paralelo.
+
+Refactorizamos initDashboardModule y setupTendenciaToggle para manejar los clics de los botones de tendencia.
+
+4. Estado Final y Problema Pendiente
+Estado: El Backend (app.py) está 100% completo y es robusto. La Base de Datos es 100% correcta (130 registros). El Frontend (app.js) está cargando todos los datos que necesita.
+
+Problema Pendiente: El botón "Sesiones Ext." no responde al clic.
+
+Mi hipótesis de QA: Dado que el v=1.4 y la Recarga Forzada no funcionaron, esto ya no es un problema de caché. Es un error de tiempo de ejecución en el app.js que te di. La función setupTendenciaToggle está siendo llamada, pero el addEventListener para "Sesiones Ext." está fallando (probablemente un id que no coincide entre el HTML que te di y el JS).

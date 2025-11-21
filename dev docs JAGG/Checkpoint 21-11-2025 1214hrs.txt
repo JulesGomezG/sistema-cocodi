@@ -1,0 +1,82 @@
+Checkpoint
+1. Objetivo Inicial y Origen del Problema
+El Problema de Negocio (Visión Analista): Existía un "punto ciego" en la auditoría del sistema. Los reportes anteriores se centraban en Hallazgos (Recomendaciones) o Volúmenes Agregados (Cumplimiento). Esto provocaba que los informes "limpios" (con 0 recomendaciones) fueran invisibles en las vistas principales, impidiendo saber con certeza qué se entregó y cuándo.
+
+El Objetivo Técnico: Integrar una nueva pestaña llamada "Bitácora de Informes" dentro del módulo de Reportería existente.
+
+Restricción Crítica: La implementación debía ser "quirúrgica" para no alterar la lógica del reporte "Balance Anual", que es crítico y ya funcionaba correctamente. Se debía mantener la integridad SSOT (Single Source of Truth).
+
+2. Solución Implementada
+Arquitectura SSOT (Single Source of Truth): A diferencia de versiones anteriores donde los contadores se guardaban en la tabla padre, aquí se implementó un conteo en tiempo real.
+
+Backend (app.py): Se creó el endpoint /api/reportes/bitacora_full.
+
+Lógica: Utiliza subconsultas correlacionadas SQL para contar recomendaciones (activas) y recomendaciones (atendidas) asociadas a cada informe al momento de la consulta. Esto garantiza que el reporte siempre coincida con la base de datos real.
+
+Filtros: Reutiliza la función build_report_filters para mantener coherencia con los selectores globales (DG, Año, Ramo).
+
+Frontend (index.html):
+
+Se reestructuró el menú de navegación nav-tabs para colocar "Informes" como la primera opción.
+
+Se añadieron los contenedores visuales correspondientes.
+
+Lógica Cliente (app.js):
+
+Renderizado: Función dedicada renderReporteBitacoraInformes que incluye un contador total de registros y manejo visual de valores nulos ("N/A").
+
+Formato de Fechas: Implementación de toLocaleDateString('es-MX', { timeZone: 'UTC' }) para evitar el desfase de días por zona horaria en la visualización.
+
+Exportación: Adaptación del motor de Excel (SheetJS) para procesar y limpiar los datos de esta nueva vista antes de generar el archivo .xlsx.
+
+3. Proceso de Depuración (Iteraciones Clave)
+Durante el taller de desarrollo, superamos los siguientes obstáculos:
+
+Error de Referencia (ReferenceError):
+
+Síntoma: La aplicación falló al cargar porque bitacoraInfData no estaba definida.
+
+Causa: Al añadir el nuevo fetch en el Promise.all, olvidamos declarar la variable en la desestructuración del array.
+
+Solución: Se agregó la variable al const [...] recibiendo los datos correctamente.
+
+Integridad de Datos (Columnas Faltantes):
+
+Síntoma: La tabla se renderizaba bien, pero faltaba el dato "Ramo" (crítico para auditoría) y la fecha se mostraba en formato crudo o incorrecto.
+
+Solución: Se ajustó el renderizado HTML para incluir la columna Ramo y se aplicó el formateo UTC estricto a la fecha de entrega.
+
+Calidad de Exportación Excel:
+
+Síntoma: El Excel descargado mostraba fechas en formato ISO difícil de leer y no incluía la columna Ramo.
+
+Solución: Se modificó la función exportarReporteExcel_Bimodal para formatear explícitamente las fechas a DD/MM/YYYY antes de empaquetar el Excel y se agregó la llave nombre_ramo a la configuración de columnas.
+
+Experiencia de Usuario (Default View):
+
+Síntoma: Al entrar a "Reportería", la pestaña activa visualmente era "Informes", pero el contenido mostrado seguía siendo "Recomendaciones" debido a un disparador automático antiguo.
+
+Solución: Se actualizó la variable de estado inicial tabReporteriaActual y se redirigió el click() automático del setTimeout hacia el ID de la nueva pestaña.
+
+4. Estado Final y Artefactos
+El módulo está completo, estable y alineado con las reglas de negocio.
+
+Navegación: Al hacer clic en "Reportería", se abre inmediatamente la "Bitácora de Informes".
+
+Datos: Muestra DGs, Ramos, Instituciones, Tipos de Informe, Periodos y Fechas de Entrega exactas.
+
+Contadores: Las columnas "Recs. Emitidas" y "Recs. Atendidas" son dinámicas y reales.
+
+Exportación: El botón "Descargar Excel" genera un archivo limpio, con fechas legibles y todas las columnas de auditoría necesarias.
+
+Seguridad: No se tocó la lógica del "Balance Anual", garantizando cero regresiones en ese módulo crítico.
+
+Artefactos Entregados:
+
+init.sql (Estructura Base - Sin cambios en esta iteración).
+
+app.py (Backend con nuevo endpoint de auditoría).
+
+index.html (Estructura de pestañas reordenada).
+
+app.js (Lógica de negocio, renderizado y exportación actualizados).

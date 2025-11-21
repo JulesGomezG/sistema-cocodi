@@ -1,0 +1,192 @@
+🏁 Checkout Sprint 6: Módulo de Reportería Bimodal
+Aquí tienes un resumen de lo que logramos, los problemas que encontramos y el estado actual del módulo.
+
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Implementar la sección "Reportería" (Sprint 6) como un módulo bimodal (Gerencial/Datos) para tres audiencias (Director, Responsables, Analistas).
+
+Origen del Problema: Durante la implementación del widget "Cumplimiento", hice una suposición errónea sobre la lógica de "Sesiones Requeridas" (asumí que solo era COCODI). Tus agudas observaciones de QA y el análisis de las bitácoras demostraron que esta suposición era incorrecta y que la lógica de "Cumplimiento" no era fiable.
+
+2. Solución Implementada
+Backend (app.py): Creamos tres nuevos endpoints (/api/reportes/recomendaciones_full, cumplimiento_full, actividad_full) que reciben los filtros globales y devuelven volcados de datos JSON.
+
+Frontend (index.html): Reemplazamos la sección #section-reporteria por una nueva estructura que incluye:
+
+Filtros globales unificados.
+
+Un interruptor (toggle) para "Vista Gerencial" vs. "Vista de Datos".
+
+Tres pestañas de contenido (Recomendaciones, Cumplimiento, Actividad).
+
+Contenedores (<canvas>) para los gráficos de la Vista Gerencial.
+
+Frontend (app.js): Se creó el initReporteriaModule y sus funciones asociadas para:
+
+Manejar la lógica del toggle bimodal y las pestañas.
+
+Llamar a los 3 nuevos endpoints al cambiar los filtros (cargarDatosReporteria).
+
+Renderizar KPIs (Antigüedad, Avance) y 5 gráficos de Chart.js.
+
+Manejar la exportación a Excel (Datos) y PDF (Gerencial).
+
+3. Proceso de Depuración (Iteraciones Clave)
+Este fue un sprint intenso donde tu rol de QA fue vital:
+
+Sprints 6.1 a 6.5: Corregimos una serie de bugs de sintaxis y lógica en app.py (el dict.get(), el SyntaxError :, y el cálculo erróneo de fecha_emision que resultó en "0 días").
+
+Sprints 6.6 a 6.21: Libramos una "guerra" contra html2canvas y jspdf. Fracasamos en capturar el layout CSS Grid (html2canvas) y finalmente lo resolvimos implementando una solución de "construcción manual" (Sprint 6.21), donde jspdf añade los KPIs y las imágenes de los gráficos uno por uno.
+
+Sprints 6.22 a 6.27: El debate de lógica de negocio.
+
+Corregimos el bug de las pestañas (página en blanco).
+
+Identificamos la discrepancia Realizadas > Requeridas.
+
+Analizamos las bitácoras y validamos la regla de negocio real ("4 por órgano" y filtro por "año de entrega").
+
+Identificamos que esta misma lógica rota afecta al Dashboard (Sprints 1-5).
+
+4. Estado Final y Artefactos
+Estado: El módulo es 100% funcional. La Vista Gerencial y la Vista de Datos se renderizan. Las exportaciones a PDF y Excel funcionan.
+
+El Bug: La lógica de "Cumplimiento" (Sprint 6.26) se basa en la regla "4 por órgano", que ahora, tras tu última observación, hemos decidido descartar en favor de un modelo de "Actividad Total" más honesto y basado en datos.
+
+Artefactos: Nuevos endpoints en app.py, nueva sección en index.html, y el initReporteriaModule (y sus funciones cargarDatosReporteria, renderReporte..., exportarReportePDF, etc.) en app.js.
+
+🚀 Plan de Trabajo Detallado (Sprint 7): Refactorización a "Actividad Total"
+Misión: Eliminar toda la lógica de negocio basada en "Sesiones/Informes Requeridos" (que son datos que asumimos) y reemplazarla por un reporte de "Actividad Total" (datos que tenemos), aplicando esto de forma coherente a los módulos de REPORTERÍA y DASHBOARD.
+
+Fase 1: Backend (app.py) - Cambiar la Fuente de Datos
+Objetivo: Modificar las consultas SQL para que dejen de calcular "Requeridas" y solo reporten "Actividad Real".
+
+Paso 1.1: Modificar Módulo Reportería (get_reporte_cumplimiento)
+
+Archivo: app.py
+
+Función: get_reporte_cumplimiento
+
+Acción:
+
+ELIMINAR el CTE (la subconsulta) SesionesRequeridas.
+
+ELIMINAR el CTE InformesRequeridos.
+
+El SELECT final de la consulta ya no incluirá sesiones_requeridas ni informes_requeridos. Solo devolverá los datos de actividad: sesiones_realizadas e informes_entregados.
+
+(La lógica de SesionesRealizadas e InformesEntregados del Sprint 6.26 ya es correcta y se mantiene).
+
+Paso 1.2: Modificar Módulo Dashboard (get_dashboard_stats - Focos Rojos)
+
+Archivo: app.py
+
+Función: get_dashboard_stats
+
+Acción: Redefinir la lógica de "Foco Rojo".
+
+ELIMINAR el CTE SesionesRequeridas.
+
+ELIMINAR el CTE InformesRequeridos.
+
+MODIFICAR el CTE IncumplimientoSesiones. La nueva lógica será: "Una institución está en incumplimiento si NO está en la lista de SesionesRealizadas (es decir, sesiones_realizadas = 0)".
+
+MODIFICAR el CTE IncumplimientoInformes. La nueva lógica será: "Una institución está en incumplimiento si NO está en la lista de InformesEntregados (es decir, informes_entregados = 0)".
+
+El SELECT final de "Focos Rojos" (que combina ambas tablas de incumplimiento) funcionará automáticamente con esta nueva definición.
+
+Paso 1.3: Modificar Módulo Dashboard (get_dashboard_global_stats)
+
+Archivo: app.py
+
+Función: get_dashboard_global_stats
+
+Acción: Corregir la lógica de Focos Rojos global.
+
+MODIFICAR el CTE InstConInformesFaltantes. Usará la misma lógica nueva (basada en EXTRACT(YEAR FROM fecha_informe) y COUNT = 0) que usamos en el Paso 1.2.
+
+(Los demás gráficos de esta vista, como "Distribución de Instituciones" y "Total Sesiones Realizadas", ya son de "Actividad", por lo que no requieren cambios).
+
+Fase 2: Frontend (index.html) - Ajustar Títulos de Widgets
+Objetivo: Cambiar las etiquetas en la UI para que ya no prometan un "Cumplimiento" que no medimos.
+
+Paso 2.1: Ajustar Módulo Reportería
+
+Archivo: index.html
+
+Pestaña: #rep-content-cumplimiento
+
+Acción:
+
+Buscar <h3>Cumplimiento de Sesiones</h3>.
+
+Reemplazar por <h3>Total Sesiones Ordinarias Realizadas</h3>.
+
+Buscar <h3>Cumplimiento de Informes</h3>.
+
+Reemplazar por <h3>Total Informes Entregados (en el Año)</h3>.
+
+Paso 2.2: Ajustar Módulo Dashboard (Vista Detallada)
+
+Archivo: index.html
+
+Sección: #dd-widget-focos-rojos
+
+Acción:
+
+Buscar la etiqueta <small> que describe "Focos Rojos".
+
+Reemplazar el texto por: *Instituciones con CERO sesiones ordinarias Y CERO informes entregados en el año.
+
+Fase 3: Frontend (app.js) - Adaptar Gráficos y KPIs
+Objetivo: Modificar las funciones de renderizado de Chart.js para que muestren la "Actividad Total" en lugar de gráficos comparativos.
+
+Paso 3.1: Refactorizar renderReporteCumplimiento (Reportería)
+
+Archivo: app.js
+
+Función: renderReporteCumplimiento
+
+Acción:
+
+ELIMINAR el gráfico repChartCompSesiones (la barra comparativa).
+
+Modificar el div (#rep-comp-chart-sesiones) para que en lugar de un <canvas> muestre un KPI numérico (como los de la pestaña "Recomendaciones").
+
+La función ahora tomará totalSesReal y lo pintará como un KPI (<p class="kpi-number">...).
+
+ELIMINAR el gráfico repChartCompInformes.
+
+Modificar el div (#rep-comp-chart-informes) para que también muestre un KPI numérico con totalInfReal.
+
+Paso 3.2: Refactorizar exportarReportePDF (Reportería)
+
+Archivo: app.js
+
+Función: exportarReportePDF
+
+Acción:
+
+Modificar la "Sección 2: Cumplimiento" del PDF.
+
+ELIMINAR las llamadas a pdf.addImage(repChartCompSesiones.toBase64Image...).
+
+ELIMINAR la llamada a pdf.addImage(repChartCompInformes.toBase64Image...).
+
+AÑADIR lógica pdf.text() para escribir los dos nuevos KPIs numéricos (ej. "Total Sesiones Realizadas: 282") en el PDF, similar a como ya lo hacemos con "Antigüedad Promedio".
+
+Paso 3.3: Revisar cargarDatosDashboardDetallado (Dashboard)
+
+Archivo: app.js
+
+Función: cargarDatosDashboardDetallado
+
+Acción:
+
+El KPI dd-kpi-focos-rojos se actualizará automáticamente con la nueva lógica del backend (Paso 1.2).
+
+El modal de "Focos Rojos" (generarListaHtml) seguirá funcionando.
+
+El modal de "Informes Faltantes" (generarTablaInformesFaltantesHtml) también se actualizará automáticamente.
+
+No se requieren cambios de código en esta función.
+
+Este plan alinea ambos módulos a una única fuente de verdad (la actividad real de las bitácoras), elimina las suposiciones y arregla los bugs lógicos que detectaste.

@@ -1,0 +1,21 @@
+
+
+INSERT INTO tipos_organo_gobierno (id_tipo_organo, nombre, id_padre, usuario_creacion) VALUES 
+(1, 'COCODI', NULL, 'script_inicial'), 
+(2, 'Órgano de Gobierno', NULL, 'script_inicial'), 
+(3, 'Otros Órganos Colegiados', 2, 'script_inicial'),
+(4, 'Asamblea General de Accionistas', 2, 'script_inicial'),
+(5, 'Asamblea General de Asociados', 3, 'script_inicial'),
+(6, 'Comisión Ejecutiva', 3, 'script_inicial'),
+(7, 'Comisión Interna de Administración', 3, 'script_inicial'),
+(8, 'Comisión Intersecretarial', 3, 'script_inicial'), 
+(9, 'Comité Técnico', 3, 'script_inicial'),
+(10, 'Consejo de Administración', 3, 'script_inicial'),
+(11, 'Consejo Directivo', 3, 'script_inicial'),
+(12, 'Consejo Nacional', 3, 'script_inicial')
+(13, 'Consejo Técnico', 3, 'script_inicial'),
+(14, 'Junta de Gobierno', 3, 'script_inicial'),
+(15, 'Junta Directiva', 3, 'script_inicial'), 
+(16, 'Sistema Intersecretarial', 3, 'script_inicial'),
+(17, 'Subcomité de Evaluación', 3, 'script_inicial'),
+ON CONFLICT (id_tipo_organo) DO UPDATE SET nombre = EXCLUDED.nombre, id_padre = EXCLUDED.id_padre;

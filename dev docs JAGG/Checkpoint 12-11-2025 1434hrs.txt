@@ -1,0 +1,63 @@
+
+
+1. 🎯 Objetivo Inicial y Origen del Problema
+Objetivo: Implementar una nueva pestaña "Rendimiento" (Sprint 2) para complementar la "Vista Global" (Sprint 1).
+
+Origen del Problema: La "Vista Global" existente era excelente para medir volúmenes (cuántas sesiones, cuántas instituciones), pero carecía de análisis de tendencia y eficiencia. No respondía a la pregunta clave de un Director General: "¿El desempeño de las instituciones que monitoreamos mejoró o empeoró este año?"
+
+2. 💡 Solución Implementada
+Para resolver esto, implementamos una nueva vista de "Rendimiento" que funciona como un panel ejecutivo.
+
+UI (index.html):
+
+Se añadió un nuevo botón, "Rendimiento (YoY)", a la navegación del dashboard.
+
+Se creó un nuevo contenedor div (#dashboard-rendimiento-view) que se alterna con las otras dos vistas.
+
+Movimiento Estratégico (Sprint 3): Se movió el gráfico de "Tendencia Anual" (últimos 5 años) desde la "Vista Global" a esta pestaña, ya que su valor es de análisis de tendencia, no de snapshot comparativo.
+
+Backend (app.py):
+
+Se creó un nuevo endpoint GET /api/dashboard/rendimiento.
+
+Este endpoint acepta ?año_actual= y calcula internamente el año_anterior.
+
+Ejecuta consultas de agregación para calcular los 4 KPIs estratégicos definidos.
+
+Frontend (app.js):
+
+Se modificó la función switchView para manejar 3 vistas (global, rendimiento, detailed).
+
+Se crearon las funciones cargarDatosRendimiento y renderRendimientoWidgets para poblar la vista, incluyendo el gráfico de tendencia movido.
+
+3. 🐛 Proceso de Depuración (Iteraciones Clave)
+El desarrollo de esta pestaña fue un proceso iterativo de 4 Sprints, donde la colaboración con el Experto en Análisis de Datos (tú) fue clave para validar la lógica de negocio.
+
+Sprint 2 (Implementación Inicial): Se entregó la pestaña con un "KPI de Riesgo" basado en prioridad = 'Alta'.
+
+Sprint 3 (Pivote de Datos): Identificamos que prioridad no es un dato confiable. También se identificó que fecha_compromiso tampoco lo era.
+
+Acción: Se eliminó el KPI de Riesgo y se redefinieron los 4 widgets estratégicos basados en datos 100% fiables (estatus y fecha_emision / fecha_informe).
+
+Sprint 4 (Bug Fix 1): El nuevo widget "Antigüedad Promedio" mostró un valor absurdo (45,972 días).
+
+Causa Raíz: Datos históricos sucios (fecha_emision = '1900-01-01') que "envenenaban" el promedio.
+
+Solución (Fallida): Se aplicó un filtro (WHERE fecha_emision > '1901-01-01').
+
+Sprint 5 (Bug Fix 2): El filtro anterior resultó en 0 días.
+
+Causa Raíz Definitiva: El 100% del inventario pendiente tenía fechas de emisión sucias.
+
+Solución (Implementada): Se modificó la consulta para usar informes.fecha_informe como la fuente de verdad para la antigüedad.
+
+4. ✅ Estado Final y Artefactos
+Estado: Estable (Stable). La funcionalidad del Dashboard está completa, validada y no presenta regresiones. Los 4 KPIs estratégicos y el gráfico de tendencia están en producción y reflejan la lógica de negocio acordada.
+
+Artefactos Modificados:
+
+app.py
+
+index.html
+
+app.js

@@ -1,0 +1,65 @@
+
+Checkpoint: Misión "Contacto" (Directorio) Completada ✅
+1. Objetivo Inicial y Origen del Problema
+Objetivo Inicial: Analizar, diseñar y refinar la sección "Contacto" (Directorio) existente en COCODI.
+
+Origen del Problema/Decisión Clave: Durante el análisis inicial del init.sql, se identificó que la tabla directorio_contactos solo permitía asociar contactos a una Institución. El usuario aclaró que era necesario tener dos niveles: contactos Generales (solo Institución) y contactos Específicos (vinculados a un Órgano Colegiado dentro de una Institución). Esto requirió una modificación fundamental en la arquitectura de la base de datos.
+
+2. Solución Implementada
+Se realizaron ajustes coordinados en todas las capas de la aplicación:
+
+Base de Datos (init.sql):
+
+Se añadió la columna id_tipo_organo INT NULL a la tabla directorio_contactos.
+
+Se agregó la CONSTRAINT fk_directorio_organo_valido (FOREIGN KEY compuesta en id_institucion e id_tipo_organo) referenciando institucion_organos con ON DELETE CASCADE.
+
+Backend (app.py):
+
+Se confirmó que las rutas POST y PUT /api/directorio ya manejaban correctamente el envío de id_tipo_organo='0' (convirtiéndolo a NULL).
+
+Se refinó la ruta GET /api/directorio (obtener_contactos) para usar LEFT JOIN con tipos_organo_gobierno y COALESCE para devolver el nombre_organo (o 'General / Institución') necesario para el frontend.
+
+Frontend HTML (index.html):
+
+Se añadió la columna <th>Órgano Colegiado</th> a la tabla directorio-table y se ajustó el colspan.
+
+Se reintrodujeron los selects en cascada (DG, Ramo, Responsable, Institución) en el modal directorio-modal (formulario directorio-form) para permitir crear contactos para cualquier institución, basándonos en la retroalimentación de UX del usuario. Se mantuvo el select dir-organo-select para el "Ámbito".
+
+Frontend JavaScript (app.js):
+
+Se actualizó renderContactos para mostrar la nueva columna nombre_organo.
+
+Se reescribió handleNuevoContactoClick para inicializar y manejar la cascada de filtros dentro del modal, poblar el select de "Ámbito" (dir-organo-select) con la opción "General / Institución" (valor '0') seleccionada por defecto.
+
+Se reescribió handleEditContacto para ocultar la cascada de filtros (no se cambia la institución al editar), poblar el select de "Ámbito" con la opción "General / Institución", y seleccionar el valor correcto (contacto.id_tipo_organo || '0').
+
+Se simplificó handleDirectorioFormSubmit ya que FormData recoge los name correctos (id_institucion y id_tipo_organo) directamente del formulario.
+
+Se añadieron los addEventListener necesarios en initDirectorioModule para la cascada dentro del modal.
+
+3. Proceso de Depuración (Iteraciones Clave)
+Durante la implementación en app.js, surgieron varios desafíos:
+
+Error Inicial: Uncaught SyntaxError: await is only valid in async functions.... Inicialmente se pensó que estaba en el código recién modificado de handleEditContacto.
+
+Diagnóstico Incorrecto: Se intentó corregir el error añadiendo async a funciones en initDirectorioModule y luego en initReporteriaModule, basándose en el número de línea reportado por el navegador.
+
+Aislamiento: Se utilizó la técnica de comentar módulos completos (Reportería, Dashboard) para aislar la sección que contenía el error de sintaxis original. Esto confirmó que el error estaba antes de handleEditContacto.
+
+Identificación Final: Se detectó una duplicación accidental de código significativa al final de la función handleEditContacto, la cual contenía un await fuera de un contexto async, causando el SyntaxError original.
+
+Errores Secundarios: Durante el proceso, surgieron ReferenceError (ej. initDirectorioModule is not defined) debido a comentarios mal aplicados durante el aislamiento, los cuales se corrigieron verificando la correcta delimitación de los comentarios.
+
+4. Estado Final y Artefactos
+Estado: La sección "Directorio" ahora permite crear, leer, actualizar y eliminar contactos tanto a nivel "General / Institución" (id_tipo_organo IS NULL) como a nivel "Órgano Colegiado Específico" (id_tipo_organo con valor). El modal de creación incluye la cascada completa de filtros, mientras que el de edición mantiene la institución fija. El grid muestra correctamente el ámbito del contacto.
+
+Artefactos Modificados:
+
+init.sql (Definición de directorio_contactos)
+
+app.py (Función obtener_contactos)
+
+index.html (Tabla directorio-table y formulario directorio-form)
+
+app.js (Funciones initDirectorioModule, renderContactos, handleNuevoContactoClick, handleEditContacto, handleDirectorioFormSubmit, populateYearSelect, setupCascadingFilters, initReporteriaModule)

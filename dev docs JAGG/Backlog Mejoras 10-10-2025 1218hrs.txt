@@ -1,0 +1,22 @@
+Artefacto: Backlog de Mejoras del Proyecto COCODI
+Fecha: 10 de Octubre de 2025
+Este documento sirve como un repositorio central para todas las mejoras, refactorizaciones y nuevas funcionalidades que identifiquemos. Lo revisaremos periódicamente para futuras fases de desarrollo.
+
+Backend / API
+Refactorizar Conexiones a BD: Implementar un decorador o un gestor de contexto en app.py para eliminar el código repetitivo de apertura y cierre de conexiones a la base de datos en cada endpoint.
+
+Porqué: Reduce la duplicación de código (principio DRY) y simplifica el mantenimiento.
+
+Optimizar Endpoint del Dashboard: Analizar el endpoint /api/dashboard/stats para combinar múltiples consultas SQL en una sola o en menos consultas, a fin de mejorar el rendimiento del tiempo de carga del dashboard.
+
+Porqué: A medida que los datos crezcan, un dashboard más rápido es crucial para la experiencia de usuario.
+
+Frontend / UX
+(Prioridad Alta) Implementar Carga Masiva Asistida: Desarrollar la "Alternativa 2" que discutimos. Un sistema interactivo que, al subir un archivo, sugiera coincidencias para los nombres de instituciones/órganos y permita al usuario validar o corregir antes de la carga definitiva.
+
+Porqué: Sería la solución definitiva a los errores de tipeo en los archivos de carga, aumentando la robustez del sistema al máximo.
+
+Arquitectura / DevOps
+Centralizar la Configuración: Mover valores hardcodeados como UPLOAD_FOLDER del app.py a variables de entorno o un archivo de configuración dedicado.
+
+Porqué: Mejora la portabilidad y la seguridad, facilitando el despliegue en diferentes entornos (desarrollo, producción).

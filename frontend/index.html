@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Gestión COCODI</title>
+    <title>Gestión de Sesiones, Informes y Recomendaciones</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     <style>
         :root {
@@ -293,6 +295,167 @@
         .kpi-container p {
             margin: 0.3em 0;
         }
+		
+		/* Estilo para los botones de detalle cuando están HABILITADOS */
+		/* Usamos :not(:disabled) para darle alta especificidad */
+		#dd-btn-detalle-focos-rojos:not(:disabled),
+		#dd-btn-detalle-informes-faltantes:not(:disabled) {
+			background-color: #6c757d !important; /* ¡Forzar el fondo gris secundario! */
+			color: white !important; /* ¡Forzar texto blanco! */
+			cursor: pointer;
+			opacity: 1;
+			visibility: visible;
+			/* Hereda el padding/font-size del HTML, o defínelos aquí si es necesario */
+			font-size: 0.8em;
+			padding: 5px 10px;
+			border-radius: 4px;
+		}
+
+		/* Estilo para los botones cuando están DESHABILITADOS (como en la Imagen 2) */
+		#dd-btn-detalle-focos-rojos:disabled,
+		#dd-btn-detalle-informes-faltantes:disabled {
+			background-color: #e9ecef; /* Gris claro */
+			color: #adb5bd; /* Texto gris */
+			cursor: not-allowed;
+			opacity: 0.7;
+			visibility: visible;
+		}
+
+		/* Estilo general que ya tenías para :disabled (puedes ajustarlo) */
+		button:disabled {
+			background-color: #ccc; /* Gris general para otros botones disabled */
+			cursor: not-allowed;
+			/* Puedes añadir opacity: 0.65; aquí también si quieres */
+		}
+		
+	
+		
+		/* === ESTILOS PARA ROW WIDGETS COMPARATIVOS === */
+
+		/* === ESTILOS (CORREGIDOS) PARA ROW WIDGETS COMPARATIVOS === */
+
+		/* Contenedor principal de la vista comparativa */
+		#dd-comparative-view {
+			/* Aplicamos un fondo gris claro, igual al de los filtros */
+			background-color: #f8f9fa; 
+			border-radius: 8px; /* Redondear el contenedor */
+			padding: 1.5em; /* Padding interno */
+			margin-top: 2em; /* Espacio arriba */
+		}
+
+		.comparative-widget-container {
+			display: flex;
+			flex-direction: column;
+			gap: 12px; /* Espacio entre las tarjetas-fila */
+			font-family: 'Montserrat', sans-serif;
+		}
+
+		/* Encabezado (Métrica, Delegada, Comisaria) */
+		.comparative-widget-header {
+			display: flex;
+			padding: 0px 15px 8px 15px; /* Padding solo abajo */
+			font-weight: bold;
+			color: var(--color-gob-gris);
+			font-size: 0.9em;
+			border-bottom: 2px solid #dee2e6; /* Línea separadora */
+		}
+
+		.metric-label-header {
+			flex: 3;
+			text-align: left;
+		}
+
+		.value-cell-header {
+			flex: 1;
+			text-align: center;
+		}
+
+		/* Cada "Tarjeta-Fila" de datos */
+		.comparative-row-widget {
+			display: flex;
+			background-color: #fff; /* <-- AHORA LAS TARJETAS SON BLANCAS */
+			border: 1px solid #dee2e6; /* Borde sutil */
+			border-radius: 8px; /* Esquinas redondeadas */
+			padding: 18px 15px; /* Padding interno */
+			align-items: center;
+			box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); /* Sombra sutil */
+			transition: box-shadow 0.2s ease-in-out;
+		}
+
+		.comparative-row-widget:hover {
+			 box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+		}
+
+		/* Etiqueta de la Métrica (ej. Sesiones Ordinarias) */
+		.metric-label {
+			flex: 3; 
+			font-weight: bold;
+			color: var(--color-gob-gris);
+			text-align: left;
+			padding-right: 10px;
+			font-size: 1em; /* Tamaño normal */
+		}
+
+		/* Celda del Valor (el número) */
+		.value-cell {
+			flex: 1; 
+			text-align: center;
+			font-size: 1.4em; 
+			font-weight: bold;
+			color: var(--color-gob-vino-claro);
+		}
+
+		/* Ajuste fino para el % de avance */
+		.comparative-row-widget:last-child .value-cell {
+			font-size: 1.3em;
+		}
+		
+		/* --- ESTILOS PARA PESTAÑAS TIPO BOTÓN (Reportería) --- */
+        #reporteria-tabs {
+            border-bottom: none; /* Quita la línea base fea */
+            display: flex;
+            gap: 10px; /* Espacio entre botones */
+            padding: 0;
+            margin-bottom: 20px;
+            list-style: none;
+            flex-wrap: wrap;
+        }
+
+        #reporteria-tabs .nav-item {
+            margin-bottom: 0;
+        }
+
+        #reporteria-tabs .nav-link {
+            display: block;
+            padding: 10px 20px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px; /* Bordes redondeados */
+            color: #555;
+            font-weight: bold;
+            text-decoration: none;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        /* Estado Hover (al pasar el mouse) */
+        #reporteria-tabs .nav-link:hover {
+            background-color: #f0f0f0;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            color: var(--color-gob-vino-oscuro);
+            border-color: #bbb;
+        }
+
+        /* Estado Activo (Pestaña seleccionada) - Estilo Botón Sólido */
+        #reporteria-tabs .nav-link.active {
+            background-color: var(--color-gob-vino-oscuro);
+            color: white;
+            border-color: var(--color-gob-vino-oscuro);
+            box-shadow: 0 4px 8px rgba(97, 18, 50, 0.3);
+        }
 
     </style>
 </head>
@@ -301,7 +464,7 @@
         <img src="assets/logo.jpg" alt="Logo Secretaría Anticorrupción y Buen Gobierno">
         <div class="header-titles">
             <h1>Secretaría Anticorrupción y Buen Gobierno</h1>
-            <h2>Sistema de Gestión COCODI</h2>
+            <h2>Sistema de Gestión de Sesiones, Informes y Recomendaciones</h2>
         </div>
     </header>
 
@@ -312,6 +475,7 @@
         <a href="#" data-section="section-directorio" class="nav-link">Directorio</a>
         <a href="#" data-section="section-dashboard" class="nav-link">Dashboard</a>
         <a href="#" data-section="section-reporteria" class="nav-link">Reportería</a>
+		<a href="#" data-section="section-carga-masiva" class="nav-link">Carga Masiva</a>
     </nav>
 
     <div id="notification-container"></div>
@@ -323,13 +487,15 @@
             </div>
             <div class="filtros">
                 <div><label for="filtro-año">Año:</label><select id="filtro-año"></select></div>
-                <div><label for="filtro-responsable">Responsable:</label><select id="filtro-responsable" required><option value="">Seleccione...</option></select></div>
-                <div><label for="filtro-institucion">Institución:</label><select id="filtro-institucion" required disabled><option value="">Seleccione...</option></select></div>
-                <div><label for="filtro-organo">Órgano Colegiado:</label><select id="filtro-organo" required disabled><option value="">Seleccione...</option></select></div>
+                <div><label for="filtro-dg">DG:</label><select id="filtro-dg"><option value="">Seleccione...</option></select></div>
+                <div><label for="filtro-ramo">Ramo:</label><select id="filtro-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                <div><label for="filtro-responsable">Responsable:</label><select id="filtro-responsable" required disabled><option value="">Seleccione Ramo...</option></select></div>
+                <div><label for="filtro-institucion">Institución:</label><select id="filtro-institucion" required disabled><option value="">Seleccione Responsable...</option></select></div>
+                <div><label for="filtro-organo">Órgano Colegiado:</label><select id="filtro-organo" required disabled><option value="">Seleccione Institución...</option></select></div>
             </div>
             <div class="calendario-header">
                 <h2>Calendario de Sesiones</h2>
-                <button id="btn-agendar-extraordinaria" disabled>Agendar Extraordinaria</button>
+                <button id="btn-agendar-extraordinaria" disabled>Registrar Extraordinaria</button>
             </div>
             <div id="calendario-container"><p>Por favor, complete los filtros.</p></div>
         </div>
@@ -343,13 +509,30 @@
                     <button id="btn-nuevo-informe" class="btn-primary">Crear Nuevo Informe</button>
                 </div>
                 <div class="filtros">
-                    <div><label for="filtro-informe-periodo">Año:</label><select id="filtro-informe-periodo"></select></div>
-                    <div><label for="filtro-informe-responsable">Responsable:</label><select id="filtro-informe-responsable"></select></div>
-                    <div><label for="filtro-informe-institucion">Institución:</label><select id="filtro-informe-institucion" disabled></select></div>
-                    <div><label for="filtro-informe-organo">Órgano Colegiado:</label><select id="filtro-informe-organo" disabled></select></div>
+                    <div><label for="filtro-informe-año">Año:</label><select id="filtro-informe-año"></select></div>
+                    <div><label for="filtro-informe-dg">DG:</label><select id="filtro-informe-dg"><option value="">Seleccione...</option></select></div>
+                    <div><label for="filtro-informe-ramo">Ramo:</label><select id="filtro-informe-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                    <div><label for="filtro-informe-responsable">Responsable:</label><select id="filtro-informe-responsable" disabled><option value="">Seleccione Ramo...</option></select></div>
+                    <div><label for="filtro-informe-institucion">Institución:</label><select id="filtro-informe-institucion" disabled><option value="">Seleccione Responsable...</option></select></div>
+                    <div><label for="filtro-informe-organo">Órgano Colegiado:</label><select id="filtro-informe-organo" disabled><option value="">Seleccione Institución...</option></select></div>
                 </div>
                 <table id="informes-table">
-                    <thead><tr><th>Institución</th><th>Órgano Colegiado</th><th>Descripción</th><th>Tipo de Informe</th><th>Año </th><th>Fecha Emisión</th><th>Responsable</th><th>Estado Recomendaciones</th><th>Acciones</th></tr></thead>
+                    <thead>
+                        <tr>
+                            <th>Año</th>
+                            <th>DG</th>
+                            <th>No. Ramo</th>
+                            <th>Responsable</th>
+                            <th>Institución</th>
+                            <th>Órgano Colegiado</th>
+                            <th>Tipo de Informe</th>
+                            <th>Fecha Emisión</th>
+                            <th>Descripción</th>
+                            <th>Rec. Emitidas</th>
+                            <th>Rec. Atendidas</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
                     <tbody id="informes-tbody"></tbody>
                 </table>
             </div>
@@ -379,11 +562,14 @@
                 <button id="btn-nueva-recomendacion-independiente" class="btn-primary">Crear Recomendación</button>
             </div>
             <div class="filtros">
-                <div><label for="filtro-rec-año">Año:</label><select id="filtro-rec-año"></select></div>
-                <div><label for="filtro-rec-responsable">Responsable:</label><select id="filtro-rec-responsable"></select></div>
-                <div><label for="filtro-rec-institucion">Institución:</label><select id="filtro-rec-institucion" disabled></select></div>
-                <div><label for="filtro-rec-organo">Órgano Colegiado:</label><select id="filtro-rec-organo" disabled></select></div>
-            </div>
+                    <div><label for="filtro-rec-año">Año:</label><select id="filtro-rec-año"></select></div>
+                    <div><label for="filtro-rec-dg">DG:</label><select id="filtro-rec-dg"><option value="">Seleccione...</option></select></div>
+                    <div><label for="filtro-rec-ramo">Ramo:</label><select id="filtro-rec-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                    <div><label for="filtro-rec-responsable">Responsable:</label><select id="filtro-rec-responsable" disabled><option value="">Seleccione Ramo...</option></select></div>
+                    <div><label for="filtro-rec-institucion">Institución:</label><select id="filtro-rec-institucion" disabled><option value="">Seleccione Responsable...</option></select></div>
+                    <div><label for="filtro-rec-organo">Órgano Colegiado:</label><select id="filtro-rec-organo" disabled><option value="">Seleccione Institución...</option></select></div>
+					<div><label for="filtro-rec-estatus">Estatus:</label><select id="filtro-rec-estatus"></select></div>
+                </div>
             <table id="recomendaciones-independientes-table">
                 <thead><tr><th>Institución</th><th>Órgano Colegiado</th><th>Descripción</th><th>Área</th><th>Fecha Emisión</th><th>Fecha Compromiso</th><th>Estatus</th><th>Prioridad</th><th>Informe Asociado</th><th>Evidencias</th><th>Acciones</th></tr></thead>
                 <tbody id="recomendaciones-independientes-tbody"></tbody>
@@ -398,15 +584,18 @@
                 <button id="btn-nuevo-contacto" class="btn-primary">Añadir Contacto</button>
             </div>
             <div class="filtros">
-                <div><label for="filtro-dir-responsable">Responsable:</label><select id="filtro-dir-responsable"></select></div>
-                <div><label for="filtro-dir-institucion">Institución:</label><select id="filtro-dir-institucion" disabled></select></div>
-                <div><label for="filtro-dir-organo">Órgano Colegiado:</label><select id="filtro-dir-organo" disabled></select></div>
-            </div>
+                    <div><label for="filtro-dir-dg">DG:</label><select id="filtro-dir-dg"><option value="">Seleccione...</option></select></div>
+                    <div><label for="filtro-dir-ramo">Ramo:</label><select id="filtro-dir-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                    <div><label for="filtro-dir-responsable">Responsable:</label><select id="filtro-dir-responsable" disabled><option value="">Seleccione Ramo...</option></select></div>
+                    <div><label for="filtro-dir-institucion">Institución:</label><select id="filtro-dir-institucion" disabled><option value="">Seleccione Responsable...</option></select></div>
+                    <div><label for="filtro-dir-organo">Órgano Colegiado:</label><select id="filtro-dir-organo" disabled><option value="">Seleccione Institución...</option></select></div>
+                </div>
             <table id="directorio-table">
                 <thead>
                     <tr>
                         <th>Nombre</th>
-                        <th>Teléfono</th>
+                        <th>Órgano Colegiado</th>
+						<th>Teléfono</th>
                         <th>Ext.</th>
                         <th>Email</th>
                         <th>Móvil (WhatsApp)</th>
@@ -414,173 +603,440 @@
                     </tr>
                 </thead>
                 <tbody id="directorio-tbody">
-                    <tr><td colspan="6">Por favor, complete los filtros para ver los contactos.</td></tr>
+                    <tr><td colspan="7">Por favor, complete los filtros para ver los contactos.</td></tr>
                 </tbody>
             </table>
         </div>
     </section>
 
-    <section id="section-dashboard" class="app-section hidden">
-        <div class="container">
-            <h1>Dashboard de Cumplimiento</h1>
-            <div class="dashboard-grid">
-                
-                <div class="dashboard-widget">
-                    <h2>Sesiones del Año Actual</h2>
-                    <div id="dashboard-kpi-sesiones" class="kpi-container"><p>Cargando...</p></div>
-                </div>
-                <div class="dashboard-widget">
-                    <h2>Total Informes Emitidos</h2>
-                    <div id="dashboard-kpi-total-informes" class="kpi-container"><p>Cargando...</p></div>
-                </div>
-                <div class="dashboard-widget">
-                    <h2>Total Recomendaciones</h2>
-                    <div id="dashboard-kpi-total-recomendaciones" class="kpi-container"><p>Cargando...</p></div>
-                </div>
-                <div class="dashboard-widget">
-                    <h2>Alertas de Incumplimiento</h2>
-                    <div id="dashboard-kpi-vencidas" class="kpi-container"><p>Cargando...</p></div>
-                </div>
+<section id="section-dashboard" class="app-section hidden">
+    <div class="container">
+        <h1>Dashboard</h1>
 
-                <div class="dashboard-widget">
-                    <h2>Sesiones por tipo del Año Actual</h2>
-                    <div class="chart-container">
-                        <canvas id="sesiones-tipo-chart"></canvas>
-                    </div>
-                </div>
-                <div class="dashboard-widget">
-                    <h2>Informes por Tipo</h2>
-                    <div class="chart-container">
-                        <canvas id="informes-tipo-chart"></canvas>
-                    </div>
-                </div>
-                
-                <div class="dashboard-widget">
-                    <h2>Top 5 Instituciones con Pendientes</h2>
-                    <table id="dashboard-top-instituciones-table">
-                        <thead><tr><th>Institución</th><th>Pendientes</th></tr></thead>
-                        <tbody id="dashboard-top-instituciones-tbody"><tr><td colspan="2">Cargando...</td></tr></tbody>
-                    </table>
-                </div>
-                 <div class="dashboard-widget">
-                    <h2>Tiempo Promedio de Atención</h2>
-                    <div id="dashboard-kpi-antiguedad" class="kpi-container"><p>Cargando...</p></div>
-                </div>
-
-                <div class="dashboard-widget widget-large">
-                    <h2>Estado General de Recomendaciones</h2>
-                    <div class="chart-container"><canvas id="recomendaciones-chart"></canvas></div>
-                </div>
-                <div class="dashboard-widget widget-large">
-                    <h2>Pendientes por Prioridad</h2>
-                    <div class="chart-container"><canvas id="prioridad-chart"></canvas></div>
-                </div>
-                
-                <div class="dashboard-widget widget-large">
-                    <h2>Recomendaciones Emitidas por Tipo de Informe</h2>
-                     <div class="chart-container">
-                        <canvas id="rec-emitidas-tipo-informe-chart"></canvas>
-                    </div>
-                </div>
-                <div class="dashboard-widget widget-large">
-                    <h2>Recomendaciones Atendidas por Tipo de Informe</h2>
-                    <div class="chart-container">
-                        <canvas id="rec-atendidas-tipo-informe-chart"></canvas>
-                    </div>
-                </div>
-            </div>
+        <div class="dashboard-nav" style="margin-bottom: 2em; border-bottom: 1px solid #ccc; padding-bottom: 1em;">
+            <button id="btn-view-global" class="btn-primary" data-view="global">Vista Global (Comparativa DG)</button>
+			<button id="btn-view-rendimiento" class="btn-secondary" data-view="rendimiento">Rendimiento DG (YoY)</button>
+            <button id="btn-view-detailed" class="btn-secondary" data-view="detailed">Vista Detallada (Filtrable)</button>
+			<button id="btn-export-pdf" class="btn-info" style="margin-left: 20px;">📄 Exportar Reporte PDF</button>
         </div>
-    </section>
 
-    <section id="section-reporteria" class="app-section hidden">
-        <div class="container">
-            <div class="header">
-                <h1>Generador de Reportes</h1>
+        <div id="dashboard-global-view">
+            <!-- INICIO DE CORRECCIÓN: AÑADIR FILTRO GLOBAL PARA ANÁLISIS DE TENDENCIA -->
+            <div class="filtros" id="dashboard-global-filters" style="margin-bottom: 2em;">
+                <div>
+                    <label for="dg-filtro-año">**Seleccione Año para la Vista Global:**</label>
+                    <select id="dg-filtro-año" required>
+                        <option value="">Cargando Años...</option>
+                    </select>
+                </div>
             </div>
+            <!-- FIN DE CORRECCIÓN -->
+            
+            <h2>Comparativa por Dirección General - <span id="dg-titulo-anual">Año Actual</span></h2>
+            <div class="dashboard-grid">
 
-            <div class="filtros">
-                <div style="flex-basis: 100%;"><label for="report-type-select">1. Seleccione el tipo de reporte:</label>
-                    <select id="report-type-select">
-                        <option value="">Seleccione...</option>
-                        <option value="recomendaciones">Reporte Detallado de Recomendaciones</option>
-                        <option value="sesiones">Reporte de Sesiones</option>
-                        <option value="informes">Reporte de Informes</option>
+                <div class="dashboard-widget">
+                    <h3>Distribución de Instituciones Asignadas</h3>
+                    <div class="chart-container">
+                        <canvas id="global-inst-distribucion-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>% de Instituciones con Focos Rojos*</h3>
+                    <div class="chart-container">
+                        <canvas id="global-focos-rojos-chart"></canvas>
+                    </div>
+                    <small>*Instituciones sin sesiones ordinarias registradas y con informes requeridos faltantes en el año.</small>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>Total Sesiones Ordinarias Realizadas - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-sesiones-ordinarias-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>Total Sesiones Extraordinarias Realizadas - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-sesiones-extraordinarias-chart"></canvas>
+                    </div>
+                </div>
+
+               			
+				<div class="dashboard-widget widget-large">
+                    <h3>Total Sesiones Realizadas por Tipo de Órgano - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-sesiones-por-tipo-organo-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget widget-large">
+                    <h3>Sesiones Ordinarias por Tipo de Órgano - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-sesiones-ord-por-tipo-organo-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget widget-large">
+                    <h3>Sesiones Extraordinarias por Tipo de Órgano - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-sesiones-ext-por-tipo-organo-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget widget-large">
+                    <h3>Total Informes Entregados por Tipo de Informe - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-informes-entregados-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>Total Recomendaciones Emitidas</h3>
+                    <div id="global-kpi-total-recs-emitidas" class="kpi-container" style="display: flex; align-items: center; justify-content: center; height: 100%;">
+                        <p>Cargando...</p>
+                    </div>
+                </div>
+
+				<div class="dashboard-widget widget-large">
+                    <h3>Volumen Recomendaciones (Atendidas vs Pendientes)</h3>
+                    <div class="chart-container">
+                        <canvas id="global-recs-volumen-chart"></canvas>
+                    </div>
+                </div>
+				
+				<div class="dashboard-widget widget-large">
+					<h3>Volumen Recomendaciones(Atendidas vs. Pendientes) por Origen</h3>
+					<div class="chart-container">
+						<canvas id="global-recs-volumen-por-tipo-chart"></canvas>
+					</div>
+				</div>
+				
+                <div class="dashboard-widget">
+                    <h3>% Recomendaciones (Atención s/ Emitidas)</h3>
+                    <div class="chart-container">
+                        <canvas id="global-recs-eficiencia-chart"></canvas>
+                    </div>
+                </div>		
+				
+				<div class="dashboard-widget widget-large">
+                    <h3>Eficiencia de Recomendaciones por Origen (por DG)</h3>
+                    <div class="chart-container">
+                        <canvas id="global-eficiencia-recs-por-tipo-chart"></canvas>
+                    </div>
+                </div>
+           
+								
+            </div> 
+        </div> 
+		
+		<div id="dashboard-rendimiento-view" class="hidden">
+            <h2>Análisis de Rendimiento (Año vs. Año)</h2>
+
+            <div class="filtros" id="dashboard-rendimiento-filters" style="margin-bottom: 2em;">
+                <div>
+                    <label for="dr-filtro-año"><strong>Año de Análisis</strong></label>
+                    <select id="dr-filtro-año" required>
+                        <option value="">Cargando Años...</option>
                     </select>
                 </div>
             </div>
 
-            <div id="filters-recomendaciones" class="report-filters hidden">
-                <h3>2. Aplique los filtros que desee:</h3>
-                <div class="filtros">
-                    <div><label>Fecha de Emisión (Desde):</label><input type="date" id="report-rec-date-from"></div>
-                    <div><label>Fecha de Emisión (Hasta):</label><input type="date" id="report-rec-date-to"></div>
-                    <div><label>Responsable:</label><select id="report-rec-responsable"></select></div>
-                    <div><label>Institución:</label><select id="report-rec-institucion"></select></div>
-                    <div><label>Órgano Colegiado:</label><select id="report-rec-organo"></select></div>
-                    <div><label>Estatus:</label><select id="report-rec-estatus"></select></div>
-                    <div><label>Prioridad:</label><select id="report-rec-prioridad"></select></div>
-                    <div><label>Tipo:</label><select id="report-rec-tipo"></select></div>
-                    <div style="align-self: center;"><input type="checkbox" id="report-rec-vencidas" style="width: auto; margin-right: 10px;"> <label for="report-rec-vencidas">Mostrar sólo vencidas</label></div>
-                </div>
+            <div id="rendimiento-widgets-container" class="dashboard-grid">
+                <p>Por favor, seleccione un año para ver los KPIs.</p>
             </div>
+			
+			<!-- INICIO CORRECCIÓN: Widget de Alternancia de Tendencia -->
+                    <div class="dashboard-widget widget-large">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 id="dd-tendencia-title" style="margin: 0;">Tendencia Anual: Sesiones Ordinarias</h3>
+                            <div id="dd-tendencia-toggle" class="btn-group">
+								<button class="btn-primary" id="btn-tendencia-sesiones">Sesiones Ord.</button>
+								<button class="btn-secondary" id="btn-tendencia-sesiones-ext">Sesiones Ext.</button>
+								<button class="btn-secondary" id="btn-tendencia-informes">Informes Entregados</button>
+								<button class="btn-secondary" id="btn-tendencia-recomendaciones">Recomendaciones Emitidas</button>
+								<button class="btn-secondary" id="btn-tendencia-recomendaciones-atendidas">Recomendaciones Atendidas</button>								
+							</div>
+                        </div>
+                        <div class="chart-container" style="height: 350px;">
+                            <canvas id="dd-chart-tendencia-sesiones"></canvas>
+                        </div>
+                    </div>
+            <!-- FIN CORRECCIÓN: Widget de Alternancia de Tendencia -->
+					
+        </div>
+        
+        <div id="dashboard-detailed-view" class="hidden">
+            <h2>Análisis Detallado</h2>
 
-            <div id="filters-sesiones" class="report-filters hidden">
-                <h3>2. Aplique los filtros que desee:</h3>
-                <div class="filtros">
-                    <div><label>Fecha Realizada (Desde):</label><input type="date" id="report-ses-date-from"></div>
-                    <div><label>Fecha Realizada (Hasta):</label><input type="date" id="report-ses-date-to"></div>
-                    <div><label>Año de la Sesión:</label><select id="report-ses-año"></select></div>
-                    <div><label>Responsable:</label><select id="report-ses-responsable"></select></div>
-                    <div><label>Institución:</label><select id="report-ses-institucion"></select></div>
-                    <div><label>Órgano Colegiado:</label><select id="report-ses-organo"></select></div>
-                    <div><label>Tipo de Sesión:</label><select id="report-ses-tipo"></select></div>
-                    <div><label>Estatus:</label><select id="report-ses-estatus"></select></div>
-                </div>
-            </div>
-
-            <div id="filters-informes" class="report-filters hidden">
-                <h3>2. Aplique los filtros que desee:</h3>
-                <div class="filtros">
-                    <div>
-                        <label>Periodo (Año):</label>
-                        <select id="report-inf-periodo"></select>
-                    </div>
-                    <div>
-                        <label>Responsable:</label>
-                        <select id="report-inf-responsable"></select>
-                    </div>
-                    <div>
-                        <label>Institución:</label>
-                        <select id="report-inf-institucion"></select>
-                    </div>
-                    <div>
-                        <label>Órgano Colegiado:</label>
-                        <select id="report-inf-organo"></select>
-                    </div>
-                    <div>
-                        <label>Tipo de Informe:</label>
-                        <select id="report-inf-tipo"></select>
-                    </div>
-                </div>
-            </div>
-            <div class="header" style="margin-top: 2em;">
-                <h2>3. Genere y Exporte su Reporte</h2>
+            <div class="filtros" id="dashboard-detailed-filters">
                 <div>
-                    <button id="generate-report-btn" class="btn-primary" disabled>Generar Reporte en Pantalla</button>
-                    <button id="export-excel-btn" class="btn-info" disabled>Exportar a Excel</button>
+                    <label for="dd-filtro-año">Año:</label>
+                    <select id="dd-filtro-año" required> <option value="">Seleccione...</option> </select>
+                </div>
+                <div>
+                    <label for="dd-filtro-dg">DG:</label>
+                    <select id="dd-filtro-dg" required> <option value="">Seleccione...</option> </select>
+                </div>
+                <div>
+                    <label for="dd-filtro-ramo">Ramo:</label>
+                    <select id="dd-filtro-ramo" disabled> <option value="">Seleccione DG...</option> </select>
+                </div>
+                <div>
+                    <label for="dd-filtro-responsable">Responsable:</label>
+                    <select id="dd-filtro-responsable" disabled> <option value="">Seleccione Ramo...</option> </select>
+                </div>
+                <div>
+                    <label for="dd-filtro-institucion">Institución:</label>
+                    <select id="dd-filtro-institucion" disabled> <option value="">Seleccione Responsable...</option> </select>
+                </div>
+            </div>
+            
+            <div id="dd-view-toggle-container" class="hidden" style="text-align: right; padding: 0 0 1.5em 0; border-bottom: 2px solid #eee; margin-bottom: 1.5em;">
+                <button id="btn-show-comparative" class="btn-info">Ver Comparativas del Ramo</button>
+                <button id="btn-show-normal-widgets" class="btn-secondary hidden">Ver Widgets Detalle DG</button>
+            </div>
+
+            <div id="dd-normal-view">
+                <div class="dashboard-grid">
+                    
+                    <div class="dashboard-widget" id="dd-widget-focos-rojos">
+						<h3>Instituciones con Focos Rojos*</h3>
+						<div id="dd-kpi-focos-rojos" class="kpi-container" style="margin-bottom: 10px;"><p>Seleccione Año y DG...</p></div>
+						<button id="dd-btn-detalle-focos-rojos" class="btn-secondary btn-icon" style="font-size: 0.8em; padding: 5px 10px;" disabled>Ver Detalle</button>
+						<small style="display: block; margin-top: 10px;">*Instituciones con CERO sesiones ordinarias Y CERO informes entregados en el año.</small>
+					</div>
+
+                    
+                    <div class="dashboard-widget">
+                        <h3>Avance Recomendaciones (%)</h3>
+                        <div class="chart-container" style="height: 180px;">
+                            <canvas id="dd-chart-recs-avance"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h3>Sesiones Ordinarias Realizadas</h3>
+                        <div id="dd-kpi-sesiones-ord" class="kpi-container"><p>Seleccione Año y DG...</p></div>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h3>Sesiones Extraordinarias Realizadas</h3>
+                        <div id="dd-kpi-sesiones-ext" class="kpi-container"><p>Seleccione Año y DG...</p></div>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h3>Informes Entregados por Tipo</h3>
+                        <div class="kpi-container chart-container">
+                            <div class="chart-wrapper" style="height: 180px;"> 
+                                <canvas id="dd-chart-informes-tipo"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-widget widget-large">
+                        <h3>Avance de Recomendaciones por Origen de Informe</h3>
+                        <div class="chart-container">
+                            <canvas id="dd-chart-avance-recs-por-tipo"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widget widget-large">
+                        <h3>Sesiones Ordinarias por Tipo de Órgano</h3>
+                        <div class="chart-container">
+                            <canvas id="dd-grafico-sesiones-ord-por-organo-esp"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-widget widget-large">
+                        <h3>Sesiones Extraordinarias por Tipo de Órgano</h3>
+                        <div class="chart-container">
+                            <canvas id="dd-grafico-sesiones-ext-por-organo-esp"></canvas>
+                        </div>
+                    </div>
+                    
+                    
+                </div>
+            </div>
+            
+            <div id="dd-institution-comparison-view" class="hidden" style="margin-top: 2em;">
+                <h3 style="text-align: center; margin-bottom: 20px;">Comparativa por Institución del Ramo</h3>
+                <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr;">
+                    
+                    <div class="dashboard-widget">
+                        <h4>Sesiones Ordinarias Realizadas</h4>
+                        <div class="chart-container" style="height: 300px;"> 
+                            <canvas id="dd-chart-inst-sesiones-ord"></canvas>
+                        </div>
+                    </div>
+                    <div class="dashboard-widget">
+                        <h4>Sesiones Extraordinarias Realizadas</h4>
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="dd-chart-inst-sesiones-ext"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h4>% Avance Recomendaciones</h4>
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="dd-chart-inst-recs-avance"></canvas>
+                        </div>
+                    </div>
+                    <div class="dashboard-widget">
+                        <h4>Total Informes Entregados (Año Seleccionado)</h4>
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="dd-chart-inst-informes"></canvas>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            
+			<div id="dd-comparative-view" class="hidden">
+			</div>
+		</div>	
+	</section>
+
+	<section id="section-reporteria" class="app-section hidden">
+        <div class="container">
+            <div class="header">
+                <h1>Auditoría de Datos</h1>
+            </div>
+
+            <div class="filtros" id="reporteria-global-filters">
+                <div><label for="rep-filtro-año">Año:</label><select id="rep-filtro-año" required></select></div>
+                <div><label for="rep-filtro-dg">DG:</label><select id="rep-filtro-dg" required><option value="">Seleccione...</option></select></div>
+                <div><label for="rep-filtro-ramo">Ramo:</label><select id="rep-filtro-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                <div><label for="rep-filtro-responsable">Responsable:</label><select id="rep-filtro-responsable" disabled><option value="">Seleccione Ramo...</option></select></div>
+                <div><label for="rep-filtro-institucion">Institución:</label><select id="rep-filtro-institucion" disabled><option value="">Seleccione Responsable...</option></select></div>
+            </div>
+
+            <div id="reporteria-controls" class="header" style="padding-top: 1.5em; padding-bottom: 1.5em; margin-bottom: 1.5em; border-top: 2px solid #eee; justify-content: flex-end;">
+                <div id="reporteria-export-buttons">
+                    <button id="btn-export-excel-bimodal" class="btn-info">Descargar Excel</button>
                 </div>
             </div>
 
-            <div id="report-preview-area">
-                <p>Aún no se ha generado ningún reporte.</p>
-                <table id="report-table" class="hidden">
-                    <thead id="report-thead"></thead>
-                    <tbody id="report-tbody"></tbody>
-                </table>
+            <ul class="nav" id="reporteria-tabs" role="tablist" style="margin-bottom: 25px;">
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link active" id="rep-tab-bitacora-informes" data-toggle="tab" href="#rep-content-bitacora-informes" role="tab">
+                        Informes
+                    </a>
+                </li>				
+				<li class="nav-item" role="presentation">
+                    <a class="nav-link" id="rep-tab-recomendaciones" data-toggle="tab" href="#rep-content-recomendaciones" role="tab">
+                        Recomendaciones
+                    </a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" id="rep-tab-cumplimiento" data-toggle="tab" href="#rep-content-cumplimiento" role="tab">
+                        Cumplimiento Normativo
+                    </a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" id="rep-tab-actividad" data-toggle="tab" href="#rep-content-actividad" role="tab">
+                        Bitácora de Sesiones
+                    </a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" id="rep-tab-balance" data-toggle="tab" href="#rep-content-balance" role="tab">
+                        Balance Anual
+                    </a>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="reporteria-tab-content">
+
+                <div class="tab-pane fade show active" id="rep-content-bitacora-informes" role="tabpanel">
+                    <div class="vista-datos">
+                        <h3>Auditoría: Bitácora de Entregables</h3>
+                        <div id="rep-bitacora-informes-tabla-container" style="max-height: 600px; overflow-y: auto;">
+                            <p>Filtre y presione "Cargar Datos" para ver la tabla.</p>
+                        </div>
+                    </div>
+                </div>
+				
+				<div class="tab-pane fade" id="rep-content-recomendaciones" role="tabpanel">
+                    <div class="vista-datos">
+                        <h3>Auditoría: Recomendaciones</h3>
+                        <div id="rep-rec-tabla-container" style="max-height: 600px; overflow-y: auto;">
+                            <p>Filtre y presione "Cargar Datos" para ver la tabla.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="rep-content-cumplimiento" role="tabpanel">
+                    <div class="vista-datos">
+                        <h3>Auditoría: Cumplimiento (Sesiones vs Informes)</h3>
+                        <div id="rep-comp-tabla-container" style="max-height: 600px; overflow-y: auto;">
+                            <p>Filtre y presione "Cargar Datos" para ver la tabla.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="rep-content-actividad" role="tabpanel">
+                    <div class="vista-datos">
+                        <h3>Auditoría: Bitácora de Sesiones</h3>
+                        <div id="rep-act-tabla-container" style="max-height: 600px; overflow-y: auto;">
+                            <p>Filtre y presione "Cargar Datos" para ver la tabla.</p>
+                        </div>
+                    </div>
+                </div>
+				
+				<div class="tab-pane fade" id="rep-content-balance" role="tabpanel">
+                    <div class="vista-datos">
+                        <h3 style="border-bottom: 2px solid var(--color-gob-vino-oscuro); padding-bottom: 10px; margin-bottom: 20px;">Balance Anual de Resultados</h3>
+                        
+                        <div id="rep-balance-container" style="background-color: #fff; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6;">
+                            <p style="text-align: center; color: #666;">Cargando Balance...</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div> 
+        </div> 
+    </section>
+
+
+    <section id="section-carga-masiva" class="app-section hidden">
+        <div class="container">
+            <div class="header">
+                <h1>Carga Masiva de Datos Históricos</h1>
+            </div>
+            <p>Este módulo permite cargar datos históricos de sesiones (CSV) e informes (Excel) para poblar la base de datos inicial, aplicando las reglas de negocio definidas en el checkpoint.</p>
+            
+            <form id="bulk-upload-form" style="margin-top: 2em;">
+                <div class="filtros" style="display: block;">
+                    <div>
+                        <label style="font-size: 1.2em;">1. Seleccione el tipo de datos a cargar:</label>
+                        <div style="padding: 10px 0;">
+                            <input type="radio" id="upload-type-sesiones" name="type" value="sesiones" checked style="margin-right: 5px;">
+                            <label for="upload-type-sesiones" style="margin-right: 20px;">Sesiones Históricas</label>
+                            
+                            <input type="radio" id="upload-type-informes" name="type" value="informes" style="margin-right: 5px;">
+                            <label for="upload-type-informes">Informes Históricos</label>
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px;">
+                        <label for="bulk-upload-file-input" style="font-size: 1.2em;">2. Seleccione el archivo:</label>
+                        <input type="file" id="bulk-upload-file-input" name="file" required 
+                               accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+                               style="width: 100%; margin-top: 10px; padding: 10px; font-size: 1em;">
+                    </div>
+                </div>
+                <div style="text-align: right; margin-top: 2em;">
+                    <button type="submit" id="bulk-upload-submit-btn" class="btn-primary" disabled>Procesar y Cargar Archivo</button>
+                </div>
+            </form>
+            <div id="bulk-upload-result-area" class="hidden" style="margin-top: 2em; padding: 1.5em; border-radius: 5px;">
+                <h3>Resultados de la Carga</h3>
+                <div id="bulk-upload-status"></div>
             </div>
         </div>
     </section>
-
+    
     <div id="ejecucion-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -588,11 +1044,10 @@
                 <span class="close-btn">&times;</span>
             </div>
             <form id="ejecucion-form" class="modal-form">
-                <input type="hidden" id="id_calendario_hidden" name="id_calendario">
-                <input type="hidden" id="id_ejecucion_hidden" name="id_ejecucion">
+                <input type="hidden" id="id_calendario_hidden" name="id_calendario_hidden">
+                <input type="hidden" id="id_ejecucion_hidden" name="id_ejecucion_hidden">
                 <div><label>Número de Oficio:</label><input type="text" name="numero_sesion_oficial" required></div>
                 <div><label>Fecha Real de Ejecución:</label><input type="date" name="fecha_real" required></div>
-                <div><label>Responsable de la Ejecución:</label><input type="text" name="responsable" required></div>
                 <div>
                     <label>Documentos (Acta, etc.):</label>
                     <input type="file" name="files" id="sesion-files-input" multiple>
@@ -615,29 +1070,48 @@
     </div>
 
     <div id="informe-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="informe-modal-title">Nuevo Informe</h2>
-                <span class="close-btn">&times;</span>
-            </div>
-            <form id="informe-form" class="modal-form">
-                <input type="hidden" id="id_informe_hidden_form" name="id_informe">
-                <div><label>Periodo:</label><select id="periodo-select" name="periodo" required></select></div>
-                <div><label>Responsable:</label><select id="responsable-select-informe" name="id_responsable" required></select></div>
-                <div><label>Institución:</label><select id="institucion-select-informe" name="id_institucion" required disabled></select></div>
-                <div><label>Órgano Colegiado:</label><select id="organo-select-informe" name="id_organo_colegiado" required disabled></select></div>
-                <div><label>Tipo de Informe:</label><select name="tipo_informe" required><option value="">Seleccione...</option><option>Informe de Autoevaluación</option><option>Informe de Estados Financieros</option><option>RAAD</option></select></div>
-                <div><label for="informe-descripcion">Descripción (Opcional):</label><textarea id="informe-descripcion" name="descripcion" rows="3"></textarea></div>
-                <div><label>Fecha de Emisión:</label><input type="date" name="fecha_informe" required></div>
-                <div>
-                    <label>Documentos de Soporte:</label>
-                    <input type="file" name="files" id="informe-files-input" multiple>
-                    <div id="informe-files-list" class="file-list-container"></div>
-                </div>
-                <button type="submit" class="btn-primary" disabled>Guardar</button>
-            </form>
-        </div>
-    </div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="informe-modal-title">Nuevo Informe</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <form id="informe-form" class="modal-form">
+                <input type="hidden" id="id_informe_hidden_form" name="id_informe">
+                
+                                
+                                <div><label>Año (Periodo Reportado):</label><select id="periodo-select" name="periodo_reportado" required></select></div>
+                
+                                <div><label>DG:</label><select id="form-informe-dg" name="id_dg" required><option value="">Seleccione...</option></select></div>
+                <div><label>Ramo:</label><select id="form-informe-ramo" name="id_ramo" required disabled><option value="">Seleccione DG...</option></select></div>
+                
+                                <div><label>Responsable:</label><select id="form-informe-responsable" name="id_responsable" required disabled><option value="">Seleccione Ramo...</option></select></div>
+                <div><label>Institución:</label><select id="form-informe-institucion" name="id_institucion" required disabled><option value="">Seleccione Responsable...</option></select></div>
+                <div><label>Órgano Colegiado:</label><select id="form-informe-organo" name="id_tipo_organo" required disabled><option value="">Seleccione Institución...</option></select></div>
+                
+                                <div><label>Tipo de Informe:</label><select id="form-informe-tipo" name="id_tipo_informe" required><option value="">Seleccione...</option></select></div>
+                
+                <hr>
+                
+                <div><label>Fecha de Emisión:</label><input type="date" name="fecha_informe" required></div>
+                
+                                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 1;"><label>Rec. Emitidas:</label><input type="number" name="recomendaciones_emitidas" value="0" min="0" class="form-control" required></div>
+                    <div style="flex: 1;"><label>Rec. Atendidas:</label><input type="number" name="recomendaciones_atendidas" value="0" min="0" class="form-control" required></div>
+                </div>
+                
+                <div><label for="informe-descripcion">Descripción (Opcional):</label><textarea id="informe-descripcion" name="descripcion" rows="3"></textarea></div>
+                
+                <div>
+                    <label>Documentos de Soporte (Opcional):</label>
+                    <input type="file" name="files" id="informe-files-input" multiple>
+                    <div id="informe-files-list" class="file-list-container"></div>
+                </div>
+                
+                                
+                <button type="submit" class="btn-primary" disabled>Guardar</button>
+            </form>
+        </div>
+    </div>
     <div id="recomendacion-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -649,10 +1123,13 @@
                 <input type="hidden" id="id_informe_hidden_rec" name="id_informe">
                 
                 <div id="rec-independent-fields">
-                    <div><label>Responsable:</label><select id="rec-responsable-select" name="id_responsable" required></select></div>
-                    <div><label>Institución:</label><select id="rec-institucion-select" name="id_institucion" required disabled></select></div>
-                    <div><label>Órgano Colegiado:</label><select id="rec-organo-select" name="id_organo_colegiado" required disabled></select></div>
-                </div>
+					<div><label>DG:</label><select id="rec-dg-select" name="id_dg_modal" required><option value="">Seleccione...</option></select></div>
+					<div><label>Ramo:</label><select id="rec-ramo-select" name="id_ramo_modal" required disabled><option value="">Seleccione DG...</option></select></div>
+					<div><label>Responsable:</label><select id="rec-responsable-select" name="id_responsable" required disabled><option value="">Seleccione Ramo...</option></select></div>
+					<div><label>Institución:</label><select id="rec-institucion-select" name="id_institucion" required disabled><option value="">Seleccione Responsable...</option></select></div>
+					<div><label>Órgano Colegiado:</label><select id="rec-organo-select" name="id_tipo_organo" required disabled><option value="">Seleccione Institución...</option></select></div> 
+				</div>
+				
                 
                 <div><label>Descripción:</label><textarea name="descripcion" required rows="3"></textarea></div>
                 <div><label>Área Responsable:</label><input type="text" name="area_responsable_atencion" required></div>
@@ -681,22 +1158,37 @@
                 <span class="close-btn">&times;</span>
             </div>
             <form id="directorio-form" class="modal-form">
-                <input type="hidden" id="id_contacto_hidden" name="id_contacto">
-                
-                <div id="dir-creation-fields">
-                    <div><label>Responsable:</label><select id="dir-responsable-select" name="id_responsable" required></select></div>
-                    <div><label>Institución:</label><select id="dir-institucion-select" name="id_institucion" required disabled></select></div>
-                    <div><label>Órgano Colegiado:</label><select id="dir-organo-select" name="id_organo_colegiado" required disabled></select></div>
-                </div>
+				<input type="hidden" id="id_contacto_hidden" name="id_contacto">
 
-                <div><label>Nombre Completo:</label><input type="text" name="nombre_contacto" required></div>
-                <div><label>Teléfono:</label><input type="text" name="telefono"></div>
-                <div><label>Extensión:</label><input type="text" name="extension"></div>
-                <div><label>Email:</label><input type="email" name="email"></div>
-                <div><label>Móvil (WhatsApp):</label><input type="text" name="movil"></div>
-                <div><label>Dirección:</label><textarea name="direccion" rows="2"></textarea></div>
-                <button type="submit" class="btn-primary" disabled>Guardar</button>
-            </form>
+				<div id="dir-modal-cascading-fields"> <div><label for="dir-modal-dg-select">DG:</label>
+						<select id="dir-modal-dg-select" name="id_dg_modal" required><option value="">Seleccione...</option></select>
+					</div>
+					<div><label for="dir-modal-ramo-select">Ramo:</label>
+						<select id="dir-modal-ramo-select" name="id_ramo_modal" required disabled><option value="">Seleccione DG...</option></select>
+					</div>
+					<div><label for="dir-modal-responsable-select">Responsable:</label>
+						<select id="dir-modal-responsable-select" name="id_responsable_modal" required disabled><option value="">Seleccione Ramo...</option></select>
+					</div>
+					<div><label for="dir-modal-institucion-select">Institución:</label>
+						<select id="dir-modal-institucion-select" name="id_institucion" required disabled><option value="">Seleccione Responsable...</option></select>
+					</div>
+				</div>
+				<div>
+					<label for="dir-organo-select">Ámbito (Órgano Colegiado):</label>
+					<select id="dir-organo-select" name="id_tipo_organo" required disabled>
+						<option value="">Seleccione Institución...</option>
+					</select>
+				</div>
+
+				<div><label>Nombre Completo:</label><input type="text" name="nombre_contacto" required></div>
+				<div><label>Teléfono:</label><input type="text" name="telefono"></div>
+				<div><label>Extensión:</label><input type="text" name="extension"></div>
+				<div><label>Email:</label><input type="email" name="email"></div>
+				<div><label>Móvil (WhatsApp):</label><input type="text" name="movil"></div>
+				<div><label>Dirección:</label><textarea name="direccion" rows="2"></textarea></div>
+
+				<button type="submit" class="btn-primary" disabled>Guardar</button>
+			</form>
         </div>
     </div>
 
@@ -725,6 +1217,6 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=1.4"></script>
 </body>
 </html>

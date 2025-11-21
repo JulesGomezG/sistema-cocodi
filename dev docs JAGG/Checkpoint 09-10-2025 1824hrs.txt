@@ -1,0 +1,61 @@
+Checkpoint Final: Validación Integral de Datos COCODI
+Fecha: 9 de Octubre de 2025
+Este documento certifica la finalización exitosa del proceso de validación y limpieza de los datos fundacionales para el proyecto COCODI. El ecosistema de datos resultante está íntegro, sincronizado y es consistente con todas las reglas de negocio definidas.
+
+El Proceso de Validación ⚙️
+Nuestro trabajo se dividió en tres fases principales:
+
+Fase 1: Consolidación de Datos Maestros. Se validó el init.sql inicial contra un archivo de negocio, resultando en una base de 69 instituciones y 17 tipos de órgano con datos corregidos y estandarizados. La acción más crítica fue la reclasificación de SESNA para alinearla con su realidad operativa.
+
+Fase 2: Validación de Datos Históricos (Bitácora de Sesiones). Se procesó un archivo de 397 sesiones. El análisis reveló inconsistencias que fueron resueltas mediante el mapeo de instituciones obsoletas (DICONSA, LICONSA), la eliminación de 2 registros corruptos y, fundamentalmente, la expansión de nuestras reglas de negocio al autorizar 26 nuevos vínculos basados en la data histórica. El resultado fue una bitácora limpia de 395 registros válidos.
+
+Fase 3: Validación y Enriquecimiento de Datos (Bitácora de Informes). Se procesó un archivo de 105 informes. Se resolvió la omisión de datos del órgano emisor aplicando una regla de inferencia clave. El resultado fue una bitácora de 105 informes 100% válidos y enriquecidos con el órgano correspondiente.
+
+La Lógica de Negocio Consolidada ⚖️
+Este es el conjunto final de reglas que gobierna los datos de COCODI:
+
+Marco Legal:
+
+Toda Entidad debe tener un Órgano de Gobierno (o subtipo).
+
+El COCODI es el órgano de control interno institucional por defecto.
+
+Reglas de Negocio Refinadas:
+
+Regla de Órgano Principal: Toda institución debe tener al menos un vínculo (institución, órgano). Si las reglas explícitas no le asignan uno, se le asigna un COCODI por defecto.
+
+Regla de Inferencia para Informes: Para determinar el órgano emisor de un informe, se aplica que:
+
+RAAD ⇒ id_tipo_organo = 1 (COCODI)
+
+Informe de Autoevaluación o Estados Financieros ⇒ id_tipo_organo = 2 (Órgano de Gobierno)
+
+Excepciones Validadas: Se reconoce y permite que:
+
+SESNA, a pesar de su naturaleza, opera como una Entidad y por tanto tiene un Órgano de Gobierno.
+
+Existen 9 instituciones Desconcentradas que, por su operación, cuentan con un Órgano de Gobierno de forma excepcional y válida.
+
+Artefactos Finales y Estado del Sistema 🏛️
+1. Base de Conocimiento de Vínculos (Final y Expandida)
+El artefacto más importante es la lista final de relaciones autorizadas.
+
+Total de Vínculos Válidos Final: 149
+
+El script para poblar la tabla institucion_organos con la versión definitiva y completa de los datos es el siguiente:
+
+SQL
+
+-- SCRIPT DEFINITIVO: 149 VÍNCULOS VALIDADOS Y AUTORIZADOS
+INSERT INTO institucion_organos (id_institucion, id_tipo_organo, usuario_creacion) VALUES
+-- Vínculos Originales (123)
+(2, 1, 'final'), (8, 1, 'final'), (12, 1, 'final'), (12, 2, 'final'), (13, 1, 'final'), (13, 2, 'final'), (14, 1, 'final'), (15, 1, 'final'), (16, 1, 'final'), (16, 2, 'final'), (17, 1, 'final'), (17, 2, 'final'), (18, 1, 'final'), (18, 2, 'final'), (20, 1, 'final'), (20, 2, 'final'), (21, 1, 'final'), (21, 2, 'final'), (22, 3, 'final'), (23, 1, 'final'), (23, 2, 'final'), (24, 1, 'final'), (24, 2, 'final'), (25, 1, 'final'), (25, 2, 'final'), (25, 4, 'final'), (26, 1, 'final'), (26, 2, 'final'), (27, 1, 'final'), (27, 2, 'final'), (28, 1, 'final'), (28, 2, 'final'), (29, 1, 'final'), (29, 2, 'final'), (29, 4, 'final'), (30, 1, 'final'), (30, 2, 'final'), (30, 4, 'final'), (31, 1, 'final'), (31, 2, 'final'), (32, 1, 'final'), (32, 2, 'final'), (33, 2, 'final'), (34, 1, 'final'), (35, 1, 'final'), (36, 1, 'final'), (37, 1, 'final'), (37, 2, 'final'), (38, 1, 'final'), (38, 2, 'final'), (39, 1, 'final'), (39, 2, 'final'), (40, 1, 'final'), (41, 2, 'final'), (41, 3, 'final'), (42, 3, 'final'), (43, 1, 'final'), (43, 2, 'final'), (44, 1, 'final'), (45, 1, 'final'), (45, 2, 'final'), (45, 3, 'final'), (46, 2, 'final'), (46, 4, 'final'), (47, 1, 'final'), (47, 2, 'final'), (47, 4, 'final'), (48, 2, 'final'), (48, 4, 'final'), (49, 1, 'final'), (49, 2, 'final'), (49, 4, 'final'), (50, 1, 'final'), (51, 1, 'final'), (51, 2, 'final'), (52, 1, 'final'), (52, 2, 'final'), (53, 1, 'final'), (53, 2, 'final'), (54, 1, 'final'), (55, 1, 'final'), (55, 2, 'final'), (55, 4, 'final'), (56, 1, 'final'), (56, 2, 'final'), (56, 4, 'final'), (57, 1, 'final'), (57, 2, 'final'), (57, 4, 'final'), (58, 1, 'final'), (58, 2, 'final'), (59, 1, 'final'), (59, 2, 'final'), (59, 4, 'final'), (60, 1, 'final'), (60, 2, 'final'), (61, 1, 'final'), (61, 2, 'final'), (62, 1, 'final'), (62, 2, 'final'), (63, 1, 'final'), (63, 2, 'final'), (64, 1, 'final'), (64, 2, 'final'), (64, 4, 'final'), (65, 1, 'final'), (65, 2, 'final'), (66, 1, 'final'), (66, 2, 'final'), (67, 2, 'final'), (68, 1, 'final'), (68, 2, 'final'), (69, 1, 'final'), (1, 1, 'final'), (3, 1, 'final'), (4, 1, 'final'), (5, 1, 'final'), (6, 1, 'final'), (7, 1, 'final'), (9, 1, 'final'), (10, 1, 'final'), (11, 1, 'final'), (19, 1, 'final'),
+-- Nuevos Vínculos (26)
+(39, 14, 'final'), (33, 9, 'final'), (20, 13, 'final'), (24, 11, 'final'), (26, 9, 'final'), (17, 15, 'final'), (27, 14, 'final'), (29, 15, 'final'), (23, 15, 'final'), (31, 10, 'final'), (41, 9, 'final'), (66, 15, 'final'), (37, 13, 'final'), (45, 9, 'final'), (55, 11, 'final'), (56, 10, 'final'), (57, 10, 'final'), (22, 16, 'final'), (58, 9, 'final'), (65, 9, 'final'), (68, 12, 'final'), (61, 7, 'final'), (62, 7, 'final'), (60, 7, 'final'), (59, 7, 'final'), (45, 6, 'final');
+2. Bitácoras Históricas (Limpias y Validadas)
+Bitácora de Sesiones: El artefacto final es la tabla de 395 registros que te proporcioné, la cual está lista para su importación.
+
+Bitácora de Informes: El artefacto final es la tabla de 105 registros, enriquecida con el órgano emisor inferido, que también está lista para su importación.
+
+Veredicto del Checkpoint ✅
+El ecosistema de datos fundacionales para el proyecto COCODI está completo, validado y sincronizado. Los datos maestros, las reglas de negocio y los datos transaccionales históricos son ahora coherentes entre sí, proporcionando una base sólida y confiable para la aplicación.

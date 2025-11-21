@@ -1,0 +1,60 @@
+Checkout Módulo Dashboard (Sprints 1-5)
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Implementar la pestaña principal de "Dashboard" para proveer una "foto" de alto nivel del estado del seguimiento, dirigida principalmente a la alta dirección (Directores Generales).
+
+Requisitos: El Dashboard debía tener tres vistas distintas:
+
+Vista Global: Una comparativa entre todas las Direcciones Generales (DGs) sobre KPIs clave.
+
+Vista de Rendimiento: Un análisis "Año contra Año" (YoY) para medir la mejora o retroceso en el tiempo.
+
+Vista Detallada: Una vista filtrable (DG -> Ramo -> Responsable -> Institución) para que un Director o Responsable pudiera "taladrar" (drill-down) y ver el desempeño de su portafolio específico.
+
+Origen del Problema (No detectado en Sprints 1-5): Durante el desarrollo, se asumió una lógica de negocio para "Sesiones Requeridas" (ej. 4 por COCODI) y para "Informes Entregados" (ej. filtrar por periodo_reportado). Ambas suposiciones se demostraron incorrectas durante el análisis de bitácoras del Sprint 6.
+
+2. Solución Implementada
+Backend (app.py):
+
+Se creó el endpoint /api/dashboard/global_stats para alimentar la Vista Global, agregando datos por DG.
+
+Se creó el endpoint /api/dashboard/stats para alimentar la Vista Detallada, aceptando todos los filtros jerárquicos.
+
+Se creó el endpoint /api/dashboard/rendimiento para la Vista de Rendimiento, comparando el año actual vs. el anterior.
+
+Frontend (index.html):
+
+Se añadió la sección #section-dashboard.
+
+Se maquetaron las 3 sub-vistas (#dashboard-global-view, #dashboard-rendimiento-view, #dashboard-detailed-view).
+
+Se incluyeron los botones de navegación (btn-view-global, etc.) y los filtros (dd-filtro-año, dd-filtro-dg, etc.).
+
+Frontend (app.js):
+
+Se creó initDashboardModule() para orquestar la navegación interna, los filtros y la carga de datos.
+
+Se implementó la lógica switchView() para alternar entre las 3 vistas.
+
+Se crearon las funciones de carga (cargarDatosDashboardGlobal, cargarDatosDashboardDetallado, cargarDatosRendimiento).
+
+Se implementaron ~20 funciones de renderizado de gráficos (renderGlobal..., renderDetalle...) para poblar los <canvas> con Chart.js.
+
+3. Proceso de Depuración (Iteraciones Clave durante Sprints 1-5)
+Filtros en Cascada: Se implementó y depuró setupCascadingFilters para los filtros de la Vista Detallada.
+
+Lógica de Antigüedad (Sprint 5): Se detectó y corrigió un bug mayor donde la antigüedad promedio se disparaba. Se solucionó en app.py al usar inf.fecha_informe en lugar de r.fecha_emision (placeholder 1900-01-01).
+
+KPIs de Rendimiento: Se implementaron los cálculos de delta (YoY) para la pestaña de "Rendimiento".
+
+4. Estado Final y Artefactos (Veredicto de QA)
+Estado: El módulo está 100% FUNCIONAL a nivel de interfaz (UI), pero es LÓGICAMENTE INCORRECTO a nivel de datos (Backend).
+
+Artefactos: Endpoints .../stats y .../global_stats en app.py, y la sección #section-dashboard con toda su lógica asociada en app.js.
+
+El Bug Crítico (Descubierto en Sprint 6): El análisis de las bitácoras reveló que la lógica de negocio fundamental del Dashboard es errónea en dos áreas críticas:
+
+Bug de Cumplimiento de Sesiones: El Dashboard calcula "Requeridas" usando una lógica (ej. solo COCODI) que no coincide con la realidad de la bitácora (Regla: "4 por cada órgano"). Esto hace que el KPI de "Focos Rojos" sea completamente unreliable.
+
+Bug de Cumplimiento de Informes: El Dashboard filtra los informes por periodo_reportado = [Año]. La bitácora demostró que esto es incorrecto, ya que los informes de 2024 (Autoevaluación/Financieros) se entregan en 2025. La lógica correcta es filtrar por EXTRACT(YEAR FROM fecha_informe) = [Año].
+
+Conclusión: El Dashboard actualmente muestra KPIs (Focos Rojos, Recs. Emitidas/Atendidas en el año) que son engañosos e incorrectos. Es imperativo aplicar la nueva lógica de negocio (validada en Sprint 6) a este módulo para garantizar la consistencia de datos en toda la aplicación.

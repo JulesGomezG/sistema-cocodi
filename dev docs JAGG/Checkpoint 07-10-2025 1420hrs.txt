@@ -1,0 +1,50 @@
+Checkpoint del Proyecto COCODI: Cierre de Fase 1 e Inicio de Fase 2
+Fecha de Creación: 7 de Octubre de 2025
+Propósito: Consolidar el estado del proyecto, los artefactos generados, las decisiones de arquitectura y las reglas de negocio validadas al concluir la Fase 1. Este documento sirve como referencia maestra para la Fase 2.
+
+FASE 1: Arquitectura y Cimientos de la Base de Datos
+Objetivo: Establecer una arquitectura de base de datos robusta, validada y libre de errores de inicialización, que refleje fielmente la estructura y reglas de negocio de COCODI.
+
+Estado: Concluida con Éxito.
+
+Artefactos Clave Generados
+init_final.sql (v21.0):
+
+Descripción: El script maestro y definitivo. Contiene la estructura final de las tablas, la carga de todos los catálogos, las 69 instituciones y, crucialmente, los vínculos institución-órgano completamente validados y corregidos. Garantiza una inicialización limpia y funcional.
+
+analisis_legal.md:
+
+Descripción: Documento que explica el "porqué" de la estructura de gobierno, basándose en la Ley Federal de las Entidades Paraestatales y el Acuerdo en Materia de Control Interno. Justifica la coexistencia del Órgano de Gobierno y el COCODI.
+
+reporte_validacion.md:
+
+Descripción: La auditoría final que confirma que la clasificación de las 69 instituciones en el script init_final.sql es consistente con el marco legal.
+
+Reglas de Negocio Validadas (Resumen Final)
+Jerarquía Institucional: La estructura DG -> Ramo -> Institución es correcta y está implementada con integridad referencial.
+
+Regla de Productos (General):
+
+Dependencia / Desconcentrado → Producto principal: RAAD.
+
+Entidad / Intersecretarial → Productos principales: Informe de Autoevaluación e Informe de Estados Financieros.
+
+Excepción Clave (SESNA): Se valida que SESNA (ID 51), a pesar de ser Dependencia, es una excepción de negocio documentada y debe generar los productos de una Entidad. La BD lo soporta.
+
+Estructura de Gobierno Dual:
+
+COCODI: Obligatorio para TODAS las instituciones (control interno operativo).
+
+Órgano de Gobierno: Obligatorio para las Entidades (dirección estratégica), según la Ley de Entidades Paraestatales.
+
+Decisiones Arquitectónicas Clave
+Separación del init.sql y Datos Históricos: La decisión más importante. El init.sql solo contiene la estructura y los datos maestros/catálogos. Los datos transaccionales (sesiones, informes) se cargarán por separado. Esto eliminó el ciclo de errores.
+
+Carga de Datos Históricos vía Aplicación: Se acordó que la migración de datos históricos se realizará a través de un módulo de carga masiva en el futuro aplicativo, en lugar de un script SQL. Esto proporciona flexibilidad para mapear los datos del Excel existente sin forzar un formato de plantilla.
+
+FASE 2: Estrategia y Carga Masiva de Datos Históricos
+Objetivo: Analizar, validar y preparar los datos históricos de sesiones e informes para una migración exitosa a la base de datos a través del futuro módulo de carga.
+
+Estado: Iniciando.
+
+Próxima Acción: Recibir y analizar una muestra de los archivos Excel con los datos históricos de Sesiones e Informes.

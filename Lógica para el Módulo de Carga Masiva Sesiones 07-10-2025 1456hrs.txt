@@ -1,0 +1,137 @@
+# -*- coding: utf-8 -*-
+# Pseudocódigo / Lógica para el Módulo de Carga Masiva de Sesiones
+# Este script describe los pasos que el aplicativo final deberá seguir.
+
+import pandas as pd
+import json
+# Se necesitará una librería para conectar a PostgreSQL, como psycopg2
+
+def cargar_sesiones_historicas(ruta_excel, ruta_mapeo):
+    """
+    Procesa un archivo Excel con sesiones históricas y lo carga a la BD.
+    """
+    print("Iniciando el proceso de carga masiva de sesiones...")
+
+    # --- PASO 1: Cargar datos maestros desde la BD ---
+    # Es más eficiente tener los datos de la BD en memoria para validación.
+    # Estas funciones simulan consultas a la base de datos.
+    
+    # (id_institucion, nombre_institucion, siglas)
+    mapa_instituciones_db = obtener_instituciones_desde_db() 
+    # (id_tipo_organo, nombre)
+    mapa_organos_db = obtener_tipos_organo_desde_db()
+    # (id_tipo_sesion, nombre)
+    mapa_tipos_sesion_db = obtener_tipos_sesion_desde_db()
+    # set de tuplas (id_institucion, id_tipo_organo) para validación rápida
+    vinculos_existentes = obtener_vinculos_institucion_organo_desde_db()
+
+    # --- PASO 2: Cargar el diccionario de mapeo y el archivo Excel ---
+    with open(ruta_mapeo, 'r', encoding='utf-8') as f:
+        mapeo_nombres = json.load(f)
+    
+    df_sesiones = pd.read_excel(ruta_excel)
+    
+    registros_exitosos = 0
+    errores = []
+
+    # --- PASO 3: Iterar y procesar cada fila del Excel ---
+    for indice, fila in df_sesiones.iterrows():
+        try:
+            # --- 3a: Limpieza y Normalización ---
+            nombre_institucion_excel = str(fila['INSTITUCIÓN']).strip()
+            nombre_organo_excel = str(fila['TIPO DE ÓRANO COLEGIADO']).strip().upper()
+            tipo_sesion_excel = str(fila['ORDINARIA/EXTRAORDINARIA']).strip().upper()
+            fecha_excel = pd.to_datetime(fila['FECHA'], dayfirst=True)
+
+            # --- 3b: Mapeo (Traducción de nombres a IDs) ---
+            # Buscar ID de la institución
+            id_institucion = None
+            # Primero intenta con el nombre directo o sigla
+            for id_inst, nombre, siglas in mapa_instituciones_db:
+                if nombre.upper() == nombre_institucion_excel.upper() or siglas.upper() == nombre_institucion_excel.upper():
+                    id_institucion = id_inst
+                    break
+            # Si no se encuentra, usar el diccionario de mapeo
+            if id_institucion is None and nombre_institucion_excel in mapeo_nombres['instituciones']:
+                nombre_oficial = mapeo_nombres['instituciones'][nombre_institucion_excel]
+                for id_inst, nombre, _ in mapa_instituciones_db:
+                    if nombre == nombre_oficial:
+                        id_institucion = id_inst
+                        break
+
+            if id_institucion is None:
+                raise ValueError(f"Institución '{nombre_institucion_excel}' no encontrada en la BD o en el mapa.")
+
+            # Buscar ID del tipo de órgano
+            id_tipo_organo = None
+            for id_org, nombre in mapa_organos_db:
+                if nombre.upper() == nombre_organo_excel:
+                    id_tipo_organo = id_org
+                    break
+            
+            if id_tipo_organo is None:
+                 raise ValueError(f"Tipo de Órgano '{nombre_organo_excel}' no encontrado en la BD.")
+
+            # Buscar ID del tipo de sesión
+            id_tipo_sesion = None
+            for id_ses, nombre in mapa_tipos_sesion_db:
+                if nombre.upper() == tipo_sesion_excel:
+                    id_tipo_sesion = id_ses
+                    break
+
+            if id_tipo_sesion is None:
+                raise ValueError(f"Tipo de Sesión '{tipo_sesion_excel}' no válido.")
+
+            # --- 3c: Validación de Integridad Referencial (El paso CRÍTICO) ---
+            if (id_institucion, id_tipo_organo) not in vinculos_existentes:
+                raise ValueError(f"Vínculo INEXISTENTE entre Institución ID {id_institucion} y Órgano ID {id_tipo_organo}.")
+
+            # --- 3d: Preparar datos para inserción ---
+            datos_para_insertar = {
+                "id_institucion": id_institucion,
+                "id_tipo_organo": id_tipo_organo,
+                "id_tipo_sesion": id_tipo_sesion,
+                "año": fecha_excel.year,
+                "fecha_realizada": fecha_excel.strftime('%Y-%m-%d'),
+                "estatus": "Realizada" # Asumimos que los datos históricos son de sesiones ya realizadas
+            }
+
+            # --- 3e: Inserción en la Base de Datos ---
+            # ejecutar_insert("sesiones", datos_para_insertar)
+            registros_exitosos += 1
+
+        except Exception as e:
+            errores.append(f"Fila {indice + 2}: Error - {e}")
+
+    # --- PASO 4: Generar Reporte Final ---
+    print("\n--- Proceso de Carga Finalizado ---")
+    print(f"Registros exitosos: {registros_exitosos}")
+    print(f"Registros con errores: {len(errores)}")
+    if errores:
+        print("\nDetalle de errores:")
+        for error in errores:
+            print(error)
+
+    return {"exitosos": registros_exitosos, "errores": errores}
+
+# Funciones simuladas de acceso a la BD
+def obtener_instituciones_desde_db():
+    # En la vida real: "SELECT id_institucion, nombre_institucion, siglas FROM instituciones"
+    return [(1, 'Nombre Institucion 1', 'SIGLA1'), ...] 
+
+def obtener_tipos_organo_desde_db():
+    # En la vida real: "SELECT id_tipo_organo, nombre FROM tipos_organo_gobierno"
+    return [(1, 'COCODI'), ...]
+
+def obtener_tipos_sesion_desde_db():
+     # En la vida real: "SELECT id_tipo_sesion, nombre_sesion FROM tipos_sesion"
+    return [(1, 'ORDINARIA'), (2, 'EXTRAORDINARIA')]
+
+def obtener_vinculos_institucion_organo_desde_db():
+    # En la vida real: "SELECT id_institucion, id_tipo_organo FROM institucion_organos"
+    # Retorna un set para búsquedas O(1) muy rápidas
+    return {(1, 1), (1, 2), ...}
+
+
+# Para ejecutar el proceso:
+# resultado = cargar_sesiones_historicas("ruta/al/excel_sesiones.xlsx", "ruta/al/mapeo.json")

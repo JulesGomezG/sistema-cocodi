@@ -1,0 +1,998 @@
+Checkpoint: Módulo de Carga Masiva (Finalizado)
+Fecha: 10 de Octubre de 2025
+
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Iniciar el taller de desarrollo enfocándonos en la funcionalidad de Carga Masiva de Datos Históricos.
+
+Origen del Problema: Rápidamente identificamos que el método original de carga era frágil y propenso a errores. Su principal debilidad era la dependencia de un archivo estático llamado mapeo_final.json, el cual contenía datos de mapeo que eran incorrectos y desactualizados respecto a la base de datos ya validada.
+
+
+2. Solución Implementada: Mapeo Dinámico desde la Base de Datos
+Para solucionar el problema de raíz, acordamos implementar la "Alternativa 1: Mapeo Dinámico".
+
+Qué se hizo: Eliminamos por completo la dependencia del archivo mapeo_final.json y transformamos el sistema para que fuera autosuficiente.
+
+Cómo se hizo:
+
+Creación de Mapeo en Vivo: Se desarrolló una nueva función (construir_mapeo_oficial) que se conecta a la base de datos y construye, en tiempo real, un diccionario de mapeo 100% preciso a partir de los catálogos maestros (instituciones, tipos_organo_gobierno, tipos_informe).
+
+Sanitización de Datos: Se implementó una lógica de "limpieza profunda" (usando la librería re de Python) tanto en los datos leídos de la BD como en los del archivo subido. Esto hace que el sistema sea inmune a errores por espacios extra, caracteres invisibles o inconsistencias en mayúsculas/minúsculas.
+
+Detección Automática de Archivos: Se modificaron las funciones de procesamiento para detectar automáticamente si el archivo subido es .xlsx o .csv y usar el lector de Pandas adecuado para cada uno.
+
+Estandarización de Columnas: Se añadió un paso para estandarizar los nombres de las columnas del archivo subido, permitiendo que el código las encuentre sin importar cómo estén escritas (ej: Institución, institucion o INSTITUCIÓN).
+
+Adaptación a la Estructura Real: El código fue ajustado progresivamente para usar los nombres de columna exactos de tus archivos .xlsx validados.
+
+
+3. Proceso de Depuración (Iteraciones Clave)
+Durante la implementación, nos enfrentamos a una serie de errores que fuimos resolviendo de forma metódica. Cada error nos confirmó que el sistema de validación se estaba volviendo más robusto.
+
+TypeError: Se resolvió ajustando la "firma" de las funciones para que aceptaran los nuevos argumentos.
+
+UnicodeDecodeError: Se diagnosticó como un intento de leer un archivo .xlsx binario como si fuera un .csv de texto plano. Se solucionó implementando la detección automática de formato.
+
+KeyError: Ocurrió porque los nombres de las columnas en el archivo Excel no coincidían con los que el código esperaba. Se resolvió estandarizando los nombres de las columnas y ajustando el código para que usara los nombres correctos.
+
+ValueError (Falla de Mapeo): El sistema no encontraba una institución o un órgano en los catálogos. Se solucionó con la "sanitización profunda" de los nombres para eliminar caracteres invisibles y espacios extra que impedían la coincidencia exacta.
+
+ValueError (Falla de Vínculo): La validación más importante. El sistema detectó correctamente que no existía un vínculo permitido en institucion_organos. Se solucionó actualizando el archivo init.sql con el vínculo faltante y forzando una reinicialización completa de la base de datos.
+
+NotNullViolation (Error de BD): La base de datos rechazó un registro porque faltaba un valor para la columna periodicidad. Se solucionó añadiendo un valor por defecto ('No especificado') en el código.
+
+
+4. Estado Final y Artefactos
+Estado: El módulo de Carga Masiva está 100% funcional y validado. La base de datos del proyecto COCODI ahora contiene los 393 registros de sesiones y los 105 registros de informes históricos.
+
+A continuación, se presentan los artefactos finales generados durante este proceso.
+
+Artefacto 1: Backlog de Mejoras del Proyecto COCODI
+Este es el documento que creamos para registrar futuras mejoras sin desviarnos del objetivo actual.
+
+Módulo	Tarea	Prioridad	Razón
+Backend / API	Refactorizar Conexiones a BD con un decorador	Media	Reduce la duplicación de código y simplifica el mantenimiento.
+Backend / API	Optimizar Endpoint del Dashboard (/api/dashboard/stats)	Media	Mejorar el rendimiento del tiempo de carga a medida que los datos crezcan.
+Frontend / UX	Implementar Carga Masiva Asistida (Alternativa 2)	Alta	Solución definitiva a errores de tipeo en archivos de carga mediante una interfaz de validación.
+Arquitectura	Centralizar la Configuración (mover UPLOAD_FOLDER a variables de entorno)	Baja	Mejora la portabilidad y seguridad del aplicativo.
+
+
+
+Artefacto 2: Código Final del app.py
+Esta es la versión completa y final de tu archivo app.py, con todas las mejoras y correcciones que implementamos.
+
+Python
+
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import os
+import psycopg2
+import psycopg2.extras
+from werkzeug.utils import secure_filename
+import datetime
+import traceback
+import pandas as pd
+import json
+import re # <-- Nueva importación
+
+# --- CONFIGURACIÓN DE LA APP ---
+app = Flask(__name__, static_folder='frontend', static_url_path='')
+CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# La carga del mapeo_final.json ya no es necesaria, pero se deja por si otras partes del código lo usan.
+try:
+    with open('mapeo_final.json', 'r', encoding='utf-8') as f:
+        mapeo_datos_legacy = json.load(f)
+    print("✅ Diccionario de mapeo legacy 'mapeo_final.json' cargado.")
+except FileNotFoundError:
+    print("⚠️  Archivo 'mapeo_final.json' no encontrado.")
+    mapeo_datos_legacy = {}
+
+def get_db_connection():
+    return psycopg2.connect(os.environ.get('DATABASE_URL'))
+
+# =============================================================
+# ENDPOINTS PARA SERVIR EL FRONTEND
+# =============================================================
+@app.route('/')
+def serve_index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_frontend_files(path):
+    full_path = os.path.join(app.static_folder, path)
+    if os.path.exists(full_path):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
+
+# =============================================================
+# ENDPOINTS PARA MANEJO DE ARCHIVOS
+# =============================================================
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    files = request.files.getlist('files')
+    if not files or files[0].filename == '':
+        return jsonify({"error": "No se encontraron archivos"}), 400
+
+    parent_type = request.form.get('parent_type')
+    parent_id = request.form.get('parent_id', type=int)
+
+    if not parent_type or not parent_id:
+        return jsonify({"error": "Faltan datos para la carga"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            new_ids = []
+            for file in files:
+                if file:
+                    filename = secure_filename(file.filename)
+                    target_folder = os.path.join(app.config['UPLOAD_FOLDER'], parent_type)
+                    os.makedirs(target_folder, exist_ok=True)
+                    file_path = os.path.join(target_folder, filename)
+                    file.save(file_path)
+                    relative_path = os.path.join(parent_type, filename).replace("\\", "/")
+                    sql = "INSERT INTO evidencias (parent_id, parent_type, nombre_archivo, url_almacenamiento) VALUES (%s, %s, %s, %s) RETURNING id_evidencia;"
+                    cur.execute(sql, (parent_id, parent_type, filename, relative_path))
+                    new_id = cur.fetchone()[0]
+                    new_ids.append(new_id)
+            conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"message": "Archivos subidos", "id_evidencias": new_ids}), 201
+
+@app.route('/uploads/<path:filename>')
+def serve_uploaded_file(filename):
+    return send_from_directory(os.path.abspath(app.config['UPLOAD_FOLDER']), filename)
+
+@app.route('/api/evidencias', methods=['GET'])
+def obtener_evidencias():
+    parent_type = request.args.get('parent_type')
+    parent_id = request.args.get('parent_id', type=int)
+    if not parent_type or not parent_id:
+        return jsonify({"error": "Faltan parámetros"}), 400
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("SELECT * FROM evidencias WHERE parent_type = %s AND parent_id = %s AND activo = TRUE;", (parent_type, parent_id))
+            evidencias = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(evidencias)
+
+# =============================================================
+# LÓGICA DE CARGA MASIVA (REFACTORIZADA)
+# =============================================================
+
+def construir_mapeo_oficial(cur):
+    """
+    Construye los diccionarios de mapeo desde la BD, con claves 'sanitizadas'
+    para ser inmune a espacios extra o caracteres invisibles.
+    """
+    mapeo = {'instituciones': {}, 'organos': {}, 'tipos_informe': {}}
+    
+    # Mapeo de Instituciones
+    cur.execute("SELECT id_institucion, nombre_institucion FROM instituciones;")
+    for id_inst, nombre_inst in cur.fetchall():
+        if nombre_inst:
+            nombre_sanitizado = re.sub(r'\s+', ' ', nombre_inst.replace('\xa0', ' ')).strip().upper()
+            mapeo['instituciones'][nombre_sanitizado] = {'id': id_inst, 'nombre_oficial': nombre_inst}
+
+    # Mapeo de Órganos
+    cur.execute("SELECT id_tipo_organo, nombre FROM tipos_organo_gobierno;")
+    for id_org, nombre_org in cur.fetchall():
+        if nombre_org:
+            nombre_sanitizado = re.sub(r'\s+', ' ', nombre_org.replace('\xa0', ' ')).strip().upper()
+            mapeo['organos'][nombre_sanitizado] = {'id': id_org, 'nombre_oficial': nombre_org}
+
+    # Mapeo de Tipos de Informe
+    cur.execute("SELECT id_tipo_informe, nombre_informe FROM tipos_informe;")
+    for id_tipo, nombre_tipo in cur.fetchall():
+        if nombre_tipo:
+            nombre_sanitizado = re.sub(r'\s+', ' ', nombre_tipo.replace('\xa0', ' ')).strip().upper()
+            mapeo['tipos_informe'][nombre_sanitizado] = {'id': id_tipo, 'nombre_oficial': nombre_tipo}
+            
+    print("✅ Diccionario de mapeo oficial y sanitizado (instituciones, organos, tipos_informe) construido desde la BD.")
+    return mapeo
+
+def process_sesiones_file(cur, file, mapeo_datos):
+    """
+    Procesa, valida e inserta los datos del archivo de sesiones.
+    DETECTA AUTOMÁTICAMENTE SI ES CSV O EXCEL Y ESTANDARIZA COLUMNAS.
+    VERSIÓN FINAL 3: Ajustada a los nombres de columna exactos del archivo.
+    """
+    filename = file.filename.lower()
+    try:
+        if filename.endswith('.xlsx'):
+            df = pd.read_excel(file)
+        elif filename.endswith('.csv'):
+            df = pd.read_csv(file, encoding='latin-1')
+        else:
+            return {"status": "error", "message": "Formato de archivo no soportado. Por favor, suba un .xlsx o .csv"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error al leer el archivo: {str(e)}"}
+
+    df.columns = [str(col).strip().upper() for col in df.columns]
+
+    df = df[~(df['INSTITUCIÓN'] == 'INSTITUCIÓN')] 
+    df.drop_duplicates(subset=['INSTITUCIÓN', 'TIPO DE ÓRGANO COLEGIADO', 'FECHA'], keep='first', inplace=True)
+    df.reset_index(drop=True, inplace=True)
+
+    for index, row in df.iterrows():
+        try:
+            nombre_inst_raw = str(row['INSTITUCIÓN'])
+            nombre_org_raw = str(row['TIPO DE ÓRGANO COLEGIADO'])
+            
+            nombre_inst_sanitizado = re.sub(r'\s+', ' ', nombre_inst_raw.replace('\xa0', ' ')).strip().upper()
+            nombre_org_sanitizado = re.sub(r'\s+', ' ', nombre_org_raw.replace('\xa0', ' ')).strip().upper()
+
+            institucion_mapeada = mapeo_datos['instituciones'].get(nombre_inst_sanitizado)
+            organo_mapeado = mapeo_datos['organos'].get(nombre_org_sanitizado)
+
+            if not institucion_mapeada or not organo_mapeado:
+                raise ValueError(f"No se encontró un catálogo oficial para: '{nombre_inst_raw}' | '{nombre_org_raw}'.")
+
+            id_institucion = institucion_mapeada['id']
+            id_tipo_organo = organo_mapeado['id']
+            
+            sql_check = "SELECT 1 FROM institucion_organos WHERE id_institucion = %s AND id_tipo_organo = %s"
+            cur.execute(sql_check, (id_institucion, id_tipo_organo))
+            if cur.fetchone() is None:
+                raise ValueError(f"La combinación '{institucion_mapeada['nombre_oficial']}' y '{organo_mapeado['nombre_oficial']}' no es válida.")
+
+            tipo_sesion_str = str(row['TIPO DE SESIÓN']).strip().upper()
+            id_tipo_sesion = 1 if 'ORDINARIA' in tipo_sesion_str else 2
+            fecha_sesion = pd.to_datetime(row['FECHA']).strftime('%Y-%m-%d')
+            
+            sql_insert = """
+                INSERT INTO sesiones (id_institucion, id_tipo_organo, id_tipo_sesion, fecha_realizada, año, estatus, usuario_creacion, nombre_oficial_sesion)
+                VALUES (%s, %s, %s, %s, %s, 'Realizada', 'carga_masiva', %s);
+            """
+            nombre_oficial = f"HISTORICO-SESION-{index + 1}"
+            cur.execute(sql_insert, (id_institucion, id_tipo_organo, id_tipo_sesion, fecha_sesion, int(row['AÑO']), nombre_oficial))
+
+        except Exception as e:
+            return {"status": "error", "message": f"Error en la fila {index + 2}: {str(e)}"}
+    
+    return {"status": "success", "message": f"Se procesaron e insertaron {len(df)} registros de sesiones."}
+
+def process_informes_file(cur, file, mapeo_datos):
+    """
+    Procesa, valida e inserta los datos del archivo de informes.
+    VERSIÓN FINAL 2: Añade un valor por defecto para la columna 'periodicidad'.
+    """
+    filename = file.filename.lower()
+    try:
+        if filename.endswith('.xlsx'):
+            df = pd.read_excel(file)
+        elif filename.endswith('.csv'):
+            df = pd.read_csv(file, encoding='latin-1')
+        else:
+            return {"status": "error", "message": "Formato de archivo no soportado. Por favor, suba un .xlsx o .csv"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error al leer el archivo: {str(e)}"}
+
+    df.columns = [str(col).strip().upper() for col in df.columns]
+    df.reset_index(drop=True, inplace=True)
+
+    for index, row in df.iterrows():
+        try:
+            institucion_nombre_raw = str(row['INSTITUCIÓN'])
+            tipo_informe_raw = str(row['TIPO DE INFORME'])
+            
+            institucion_sanitizada = re.sub(r'\s+', ' ', institucion_nombre_raw.replace('\xa0', ' ')).strip().upper()
+            tipo_informe_sanitizado = re.sub(r'\s+', ' ', tipo_informe_raw.replace('\xa0', ' ')).strip().upper()
+
+            institucion_mapeada = mapeo_datos['instituciones'].get(institucion_sanitizada)
+            tipo_informe_mapeado = mapeo_datos['tipos_informe'].get(tipo_informe_sanitizado)
+            
+            if not institucion_mapeada:
+                raise ValueError(f"No se encontró un catálogo oficial para la institución: '{institucion_nombre_raw}'.")
+            if not tipo_informe_mapeado:
+                raise ValueError(f"No se encontró un catálogo oficial para el tipo de informe: '{tipo_informe_raw}'.")
+
+            id_institucion = institucion_mapeada['id']
+            id_tipo_informe = tipo_informe_mapeado['id']
+            id_tipo_organo = int(row['ID ÓRGANO COLEGIADO'])
+
+            cur.execute("SELECT 1 FROM institucion_organos WHERE id_institucion = %s AND id_tipo_organo = %s", (id_institucion, id_tipo_organo))
+            if cur.fetchone() is None:
+                raise ValueError(f"La combinación de la institución '{institucion_mapeada['nombre_oficial']}' y el órgano ID '{id_tipo_organo}' no es un vínculo válido.")
+
+            periodo_reportado = int(row['PERIODO'])
+            fecha_informe = pd.to_datetime(row['FECHA']).strftime('%Y-%m-%d')
+            emitidas = int(row.get('EMITIDAS', 0))
+            atendidas = int(row.get('ATENDIDAS', 0))
+            
+            sql_insert = """
+                INSERT INTO informes (id_institucion, id_tipo_organo, id_tipo_informe, periodo_reportado, fecha_informe, recomendaciones_emitidas, recomendaciones_atendidas, usuario_creacion, periodicidad)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'carga_masiva', %s);
+            """
+            cur.execute(sql_insert, (id_institucion, id_tipo_organo, id_tipo_informe, periodo_reportado, fecha_informe, emitidas, atendidas, 'No especificado'))
+
+        except Exception as e:
+            return {"status": "error", "message": f"Error en la fila {index + 2} del archivo de informes: {str(e)}"}
+
+    return {"status": "success", "message": f"Se procesaron e insertaron {len(df)} registros de informes."}
+
+@app.route('/api/bulk-upload', methods=['POST'])
+def bulk_upload_file():
+    if 'file' not in request.files:
+        return jsonify({"status": "error", "message": "No se encontró el archivo en la petición (llave 'file')"}), 400
+    
+    file = request.files['file']
+    upload_type = request.form.get('type')
+
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "El nombre del archivo está vacío"}), 400
+
+    if upload_type not in ['sesiones', 'informes']:
+        return jsonify({"status": "error", "message": f"Tipo de carga no válido o no especificado. Se recibió: '{upload_type}'"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            mapeo_datos = construir_mapeo_oficial(cur)
+            
+            if upload_type == 'sesiones':
+                result = process_sesiones_file(cur, file, mapeo_datos)
+            else:
+                result = process_informes_file(cur, file, mapeo_datos)
+
+            if result['status'] == 'error':
+                conn.rollback()
+                return jsonify(result), 400
+            
+            conn.commit()
+            return jsonify(result), 200
+
+    except Exception as e:
+        conn.rollback()
+        error_details = traceback.format_exc()
+        print(f"Error fatal en bulk_upload_file: {error_details}", flush=True)
+        return jsonify({"status": "error", "message": f"Error inesperado en el servidor: {str(e)}"}), 500
+    
+    finally:
+        if conn:
+            conn.close()
+
+# =============================================================
+# EL RESTO DE TUS ENDPOINTS (CATÁLOGOS, DIRECTORIO, DASHBOARD, ETC.)
+# VAN AQUÍ SIN NINGÚN CAMBIO.
+# ...
+# ... (pegar el resto del archivo original a partir de aquí)
+# =============================================================
+# ENDPOINTS DE CATÁLOGOS
+# =============================================================
+@app.route('/api/responsables', methods=['GET'])
+def obtener_responsables():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute('SELECT * FROM responsables WHERE activo = TRUE ORDER BY nombre;')
+            responsables = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(responsables)
+
+@app.route('/api/instituciones', methods=['GET'])
+def obtener_instituciones():
+    responsable_id = request.args.get('responsable_id', type=int)
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = """
+                SELECT 
+                    i.id_institucion, i.siglas, UPPER(i.nombre_institucion) as nombre_institucion,
+                    r.id_ramo, r.nombre_ramo,
+                    n.id_naturaleza, n.nombre as nombre_naturaleza,
+                    njd.id_naturaleza_juridica, njd.nombre as nombre_naturaleza_juridica,
+                    resp.id_responsable, resp.nombre as nombre_responsable
+                FROM instituciones i
+                JOIN ramos r ON i.id_ramo = r.id_ramo
+                JOIN naturalezas n ON i.id_naturaleza = n.id_naturaleza
+                JOIN naturalezas_juridicas_desglose njd ON i.id_naturaleza_juridica = njd.id_naturaleza_juridica
+                JOIN responsables resp ON i.id_responsable = resp.id_responsable
+            """
+            params = []
+            
+            if responsable_id:
+                sql += " WHERE i.id_responsable = %s"
+                params.append(responsable_id)
+
+            sql += " ORDER BY nombre_institucion;"
+            
+            cur.execute(sql, params)
+            instituciones = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(instituciones)
+
+@app.route('/api/organos-colegiados', methods=['GET'])
+def obtener_organos_filtrados():
+    institucion_id = request.args.get('institucion_id', type=int)
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if institucion_id:
+                sql = """
+                    SELECT t2.id_tipo_organo, t2.nombre, t2.id_padre 
+                    FROM institucion_organos AS t1 
+                    JOIN tipos_organo_gobierno AS t2 ON t1.id_tipo_organo = t2.id_tipo_organo 
+                    WHERE t1.id_institucion = %s ORDER BY t2.nombre;
+                """
+                cur.execute(sql, (institucion_id,))
+            else:
+                sql = "SELECT id_tipo_organo, nombre, id_padre FROM tipos_organo_gobierno WHERE activo = TRUE ORDER BY nombre;"
+                cur.execute(sql)
+            organos = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(organos)
+    
+# =============================================================
+# NUEVOS ENDPOINTS DE CATÁLOGOS (v2.0)
+# =============================================================
+
+@app.route('/api/dgs', methods=['GET'])
+def obtener_dgs():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute('SELECT * FROM dgs WHERE activo = TRUE ORDER BY nombre_dg;')
+            items = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(items)
+
+@app.route('/api/ramos', methods=['GET'])
+def obtener_ramos():
+    id_dg = request.args.get('id_dg', type=int)
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = 'SELECT * FROM ramos WHERE activo = TRUE'
+            params = []
+            if id_dg:
+                sql += ' AND id_dg = %s'
+                params.append(id_dg)
+            sql += ' ORDER BY nombre_ramo;'
+            cur.execute(sql, params)
+            items = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(items)
+
+@app.route('/api/naturalezas', methods=['GET'])
+def obtener_naturalezas():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute('SELECT * FROM naturalezas ORDER BY nombre;')
+            items = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(items)
+
+@app.route('/api/naturalezas-juridicas', methods=['GET'])
+def obtener_naturalezas_juridicas():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute('SELECT * FROM naturalezas_juridicas_desglose WHERE activo = TRUE ORDER BY nombre;')
+            items = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(items)
+
+# =============================================================
+# ENDPOINTS PARA DIRECTORIO (v2.0 AJUSTADO)
+# =============================================================
+@app.route('/api/directorio', methods=['GET'])
+def obtener_contactos():
+    institucion_id = request.args.get('institucion_id', type=int)
+    organo_id_str = request.args.get('organo_id') 
+
+    if not institucion_id:
+        return jsonify({"error": "Se requiere institucion_id"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if organo_id_str is not None:
+                if organo_id_str == '0': 
+                    sql = "SELECT * FROM directorio_contactos WHERE id_institucion = %s AND id_tipo_organo IS NULL AND activo = TRUE ORDER BY nombre_contacto;"
+                    params = (institucion_id,)
+                else:
+                    sql = "SELECT * FROM directorio_contactos WHERE id_institucion = %s AND id_tipo_organo = %s AND activo = TRUE ORDER BY nombre_contacto;"
+                    params = (institucion_id, int(organo_id_str))
+            else:
+                sql = "SELECT * FROM directorio_contactos WHERE id_institucion = %s AND activo = TRUE ORDER BY nombre_contacto;"
+                params = (institucion_id,)
+            cur.execute(sql, params)
+            contactos = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(contactos)
+
+@app.route('/api/directorio', methods=['POST'])
+def crear_contacto():
+    data = request.form.to_dict()
+    required_fields = ['id_institucion', 'nombre_contacto']
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Faltan campos requeridos"}), 400
+
+    organo_id = data.get('id_tipo_organo')
+    if not organo_id or organo_id == '0':
+        organo_id = None
+    
+    try:
+        id_institucion_int = int(data['id_institucion'])
+        organo_id_int = int(organo_id) if organo_id is not None else None
+    except (ValueError, TypeError):
+        return jsonify({"error": "El ID de institución u órgano no es un número válido"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+                INSERT INTO directorio_contactos (id_institucion, id_tipo_organo, nombre_contacto, telefono, extension, email, movil, direccion)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_contacto;
+            """
+            cur.execute(sql, (id_institucion_int, organo_id_int, data['nombre_contacto'], data.get('telefono'), data.get('extension'), data.get('email'), data.get('movil'), data.get('direccion')))
+            new_id = cur.fetchone()[0]
+            conn.commit()
+    except psycopg2.Error as e:
+        conn.rollback() 
+        return jsonify({"error": f"Error en la base de datos: {e.pgerror}"}), 500
+    finally:
+        conn.close()
+    return jsonify({"message": "Contacto creado.", "id_contacto": new_id}), 201
+
+@app.route('/api/directorio/<int:contacto_id>', methods=['PUT'])
+def actualizar_contacto(contacto_id):
+    data = request.form.to_dict()
+    organo_id = data.get('id_tipo_organo')
+    if organo_id == '0':
+        organo_id = None
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+                UPDATE directorio_contactos
+                SET nombre_contacto = %s, telefono = %s, extension = %s, email = %s, movil = %s, direccion = %s, id_tipo_organo = %s
+                WHERE id_contacto = %s;
+            """
+            cur.execute(sql, (data.get('nombre_contacto'), data.get('telefono'), data.get('extension'), data.get('email'), data.get('movil'), data.get('direccion'), organo_id, contacto_id))
+            conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"message": "Contacto actualizado."})
+
+@app.route('/api/directorio/<int:contacto_id>', methods=['DELETE'])
+def eliminar_contacto(contacto_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE directorio_contactos SET activo = FALSE WHERE id_contacto = %s;", (contacto_id,))
+            conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"message": "Contacto eliminado."})
+
+# =============================================================
+# ENDPOINT PARA DASHBOARD (v2.0 REESTRUCTURADO)
+# =============================================================
+@app.route('/api/dashboard/stats', methods=['GET'])
+def get_dashboard_stats():
+    conn = get_db_connection()
+    try:
+        current_year = datetime.date.today().year
+        dashboard_data = {}
+
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("SELECT estatus, COUNT(*) as count FROM recomendaciones WHERE activo = TRUE GROUP BY estatus;")
+            dashboard_data["recomendaciones_stats"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("SELECT COUNT(*) AS total, COUNT(CASE WHEN estatus = 'Realizada' THEN 1 END) AS realizadas FROM sesiones WHERE año = %s AND activo = TRUE;", (current_year,))
+            sesiones_stats_raw = cur.fetchone()
+            total_programadas = sesiones_stats_raw['total'] if sesiones_stats_raw else 0
+            realizadas = sesiones_stats_raw['realizadas'] if sesiones_stats_raw else 0
+            cumplimiento_pct = (realizadas / total_programadas * 100) if total_programadas > 0 else 0
+            dashboard_data["sesiones_stats"] = {"total_programadas": total_programadas, "realizadas": realizadas, "cumplimiento_pct": round(cumplimiento_pct, 2)}
+
+            cur.execute("SELECT i.siglas, COUNT(r.id_recomendacion) AS pendientes_count FROM recomendaciones r JOIN instituciones i ON r.id_institucion = i.id_institucion WHERE r.estatus = 'Pendiente' AND r.activo = TRUE GROUP BY i.siglas ORDER BY pendientes_count DESC LIMIT 5;")
+            dashboard_data["top_instituciones_pendientes"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("SELECT COUNT(*) as vencidas_count FROM recomendaciones WHERE fecha_compromiso < CURRENT_DATE AND estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE;")
+            dashboard_data["vencidas_count"] = cur.fetchone()['vencidas_count']
+            
+            sql_avg_age = """
+                SELECT COALESCE(
+                    AVG(CURRENT_DATE - fecha_emision), 
+                    0
+                )::INTEGER AS avg_age
+                FROM recomendaciones 
+                WHERE estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE;
+            """
+            cur.execute(sql_avg_age)
+            dashboard_data["antiguedad_promedio"] = cur.fetchone()['avg_age']
+
+            cur.execute("SELECT prioridad, COUNT(*) AS count FROM recomendaciones WHERE estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE GROUP BY prioridad;")
+            dashboard_data["prioridad_stats"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("SELECT tipo_recomendacion, COUNT(*) AS count FROM recomendaciones WHERE activo = TRUE GROUP BY tipo_recomendacion;")
+            dashboard_data["tipo_stats"] = [dict(row) for row in cur.fetchall()]
+        
+            cur.execute("""
+                SELECT ts.nombre_sesion as tipo_sesion, COUNT(s.id_sesion) as count 
+                FROM sesiones s
+                JOIN tipos_sesion ts ON s.id_tipo_sesion = ts.id_tipo_sesion
+                WHERE s.año = %s AND s.activo = TRUE GROUP BY ts.nombre_sesion;
+            """, (current_year,))
+            dashboard_data["sesiones_por_tipo"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("""
+                SELECT ti.nombre_informe as tipo_informe, COUNT(i.id_informe) as count 
+                FROM informes i
+                JOIN tipos_informe ti ON i.id_tipo_informe = ti.id_tipo_informe
+                WHERE i.activo = TRUE GROUP BY ti.nombre_informe;
+            """)
+            informes_por_tipo = [dict(row) for row in cur.fetchall()]
+            dashboard_data["informes_por_tipo"] = informes_por_tipo
+            dashboard_data["total_informes"] = sum(item['count'] for item in informes_por_tipo)
+
+            cur.execute("SELECT COUNT(*) AS emitidas, COUNT(CASE WHEN estatus IN ('Cerrada', 'Completada') THEN 1 END) AS atendidas FROM recomendaciones WHERE activo = TRUE;")
+            dashboard_data["recomendaciones_totales"] = dict(cur.fetchone())
+
+            cur.execute("""
+                SELECT ti.nombre_informe as tipo_informe, COUNT(rec.id_recomendacion) AS count 
+                FROM recomendaciones rec 
+                JOIN informes inf ON rec.id_informe = inf.id_informe
+                JOIN tipos_informe ti ON inf.id_tipo_informe = ti.id_tipo_informe
+                WHERE rec.activo = TRUE GROUP BY ti.nombre_informe;
+            """)
+            dashboard_data["rec_emitidas_por_tipo_informe"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("""
+                SELECT ti.nombre_informe as tipo_informe, COUNT(rec.id_recomendacion) AS count 
+                FROM recomendaciones rec 
+                JOIN informes inf ON rec.id_informe = inf.id_informe
+                JOIN tipos_informe ti ON inf.id_tipo_informe = ti.id_tipo_informe
+                WHERE rec.activo = TRUE AND rec.estatus IN ('Cerrada', 'Completada') 
+                GROUP BY ti.nombre_informe;
+            """)
+            dashboard_data["rec_atendidas_por_tipo_informe"] = [dict(row) for row in cur.fetchall()]
+
+        return jsonify(dashboard_data)
+
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"Error detallado en dashboard: {error_details}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+            
+# =============================================================
+# ENDPOINTS DE SESIONES (v2.0 REESTRUCTURADO)
+# =============================================================
+
+@app.route('/api/sesiones', methods=['GET'])
+def obtener_sesiones():
+    """
+    Obtiene las sesiones de un órgano/institución para un año dado.
+    Si las 4 sesiones ordinarias no existen para ese año, las crea automáticamente.
+    """
+    año = request.args.get('año', type=int)
+    institucion_id = request.args.get('institucion_id', type=int)
+    organo_id = request.args.get('organo_id', type=int)
+
+    if not all([año, institucion_id, organo_id]):
+        return jsonify({"error": "Faltan parámetros (año, institucion_id, organo_id)."}), 400
+    
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            # Primero, verificamos si las sesiones ordinarias ya existen para ese año
+            sql_check = "SELECT 1 FROM sesiones WHERE año = %s AND id_institucion = %s AND id_tipo_organo = %s AND id_tipo_sesion = 1 AND activo = TRUE;"
+            cur.execute(sql_check, (año, institucion_id, organo_id))
+            ordinarias_existen = cur.fetchone()
+
+            # Si no existen, las creamos
+            if not ordinarias_existen:
+                sql_insert_ordinarias = """
+                    INSERT INTO sesiones (año, id_institucion, id_tipo_organo, id_tipo_sesion, numero_ordinal, periodo, estatus, usuario_creacion)
+                    VALUES (%s, %s, %s, 1, %s, %s, 'Programada', 'sistema');
+                """
+                periodos = ['Primer Trimestre', 'Segundo Trimestre', 'Tercer Trimestre', 'Cuarto Trimestre']
+                for i, periodo in enumerate(periodos, 1):
+                    cur.execute(sql_insert_ordinarias, (año, institucion_id, organo_id, i, periodo))
+                conn.commit()
+
+            # Finalmente, obtenemos todas las sesiones (ordinarias y extraordinarias) para la vista
+            sql_get_all = """
+                SELECT * FROM sesiones 
+                WHERE año = %s AND id_institucion = %s AND id_tipo_organo = %s AND activo = TRUE 
+                ORDER BY id_tipo_sesion ASC, numero_ordinal ASC;
+            """
+            cur.execute(sql_get_all, (año, institucion_id, organo_id))
+            sesiones = [dict(row) for row in cur.fetchall()]
+            
+            return jsonify(sesiones)
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en obtener_sesiones: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/sesiones', methods=['POST'])
+def crear_sesion_extraordinaria():
+    """
+    Crea una nueva sesión extraordinaria ya realizada.
+    """
+    data = request.form.to_dict()
+    required_fields = ['año', 'institucion_id', 'organo_id', 'numero_sesion_oficial', 'fecha_realizada']
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Faltan campos requeridos"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+                INSERT INTO sesiones (
+                    año, id_institucion, id_tipo_organo, id_tipo_sesion, 
+                    estatus, nombre_oficial_sesion, fecha_realizada, usuario_creacion
+                ) VALUES (%s, %s, %s, 2, 'Realizada', %s, %s, %s) RETURNING id_sesion;
+            """
+            cur.execute(sql, (
+                data['año'], data['institucion_id'], data['organo_id'],
+                data['numero_sesion_oficial'], data['fecha_realizada'], data.get('usuario_creacion', 'sistema')
+            ))
+            new_id = cur.fetchone()[0]
+            conn.commit()
+            return jsonify({"message": "Sesión extraordinaria creada.", "id_sesion": new_id}), 201
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en crear_sesion_extraordinaria: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/sesiones/<int:id_sesion>', methods=['PUT'])
+def actualizar_sesion(id_sesion):
+    """
+    Actualiza una sesión existente. Usado principalmente para marcar una sesión 'Programada' como 'Realizada'.
+    """
+    data = request.form.to_dict()
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Construcción dinámica de la consulta para actualizar solo los campos enviados
+            update_fields = []
+            params = []
+            
+            if 'nombre_oficial_sesion' in data:
+                update_fields.append("nombre_oficial_sesion = %s")
+                params.append(data['nombre_oficial_sesion'])
+            if 'fecha_realizada' in data:
+                update_fields.append("fecha_realizada = %s")
+                params.append(data['fecha_realizada'])
+                update_fields.append("estatus = 'Realizada'") # Si se registra una fecha, se marca como realizada
+            if 'estatus' in data:
+                update_fields.append("estatus = %s")
+                params.append(data['estatus'])
+
+            if not update_fields:
+                return jsonify({"error": "No hay campos para actualizar"}), 400
+
+            # Añadir el usuario de actualización a los parámetros
+            update_fields.append("usuario_actualizacion = %s")
+            params.append(data.get('usuario_actualizacion', 'sistema'))
+            update_fields.append("fecha_actualizacion = NOW()")
+
+            params.append(id_sesion)
+            
+            sql = f"UPDATE sesiones SET {', '.join(update_fields)} WHERE id_sesion = %s;"
+            
+            cur.execute(sql, params)
+            conn.commit()
+            
+            return jsonify({"message": "Sesión actualizada.", "id_sesion": id_sesion})
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en actualizar_sesion: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# =============================================================
+# ENDPOINTS DE INFORMES Y RECOMENDACIONES (v2.0 REESTRUCTURADO)
+# =============================================================
+@app.route('/api/informes', methods=['GET', 'POST'])
+def manejar_informes():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if request.method == 'GET':
+                sql = """
+                    SELECT 
+                        i.id_informe, i.id_institucion, i.id_tipo_organo, i.id_tipo_informe,
+                        i.periodicidad, i.periodo_reportado, i.fecha_informe, i.descripcion, i.activo,
+                        i.recomendaciones_emitidas, i.recomendaciones_atendidas,
+                        UPPER(inst.nombre_institucion) as nombre_institucion, inst.siglas,
+                        tog.nombre as nombre_organo,
+                        ti.nombre_informe
+                    FROM informes i
+                    JOIN instituciones inst ON i.id_institucion = inst.id_institucion
+                    JOIN tipos_organo_gobierno tog ON i.id_tipo_organo = tog.id_tipo_organo
+                    JOIN tipos_informe ti ON i.id_tipo_informe = ti.id_tipo_informe
+                """
+                
+                filters = ["i.activo = TRUE"]
+                params = []
+                
+                if request.args.get('periodo_reportado'):
+                    filters.append("i.periodo_reportado = %s")
+                    params.append(request.args.get('periodo_reportado'))
+                if request.args.get('institucion_id'):
+                    filters.append("i.id_institucion = %s")
+                    params.append(request.args.get('institucion_id', type=int))
+                if request.args.get('organo_id'):
+                    filters.append("i.id_tipo_organo = %s")
+                    params.append(request.args.get('organo_id', type=int))
+
+                if filters:
+                    sql += " WHERE " + " AND ".join(filters)
+                
+                sql += " ORDER BY i.fecha_informe DESC;"
+                
+                cur.execute(sql, tuple(params))
+                informes = [dict(row) for row in cur.fetchall()]
+                return jsonify(informes)
+            
+            if request.method == 'POST':
+                data = request.form.to_dict()
+                
+                sql_insert = """
+                    INSERT INTO informes 
+                    (periodo_reportado, periodicidad, id_institucion, id_tipo_organo, id_tipo_informe, descripcion, fecha_informe, recomendaciones_emitidas, recomendaciones_atendidas, usuario_creacion)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_informe;
+                """
+                cur.execute(sql_insert, (
+                    data['periodo_reportado'], data['periodicidad'], data['id_institucion'], data['id_tipo_organo'], 
+                    data['id_tipo_informe'], data.get('descripcion'), data['fecha_informe'], 
+                    data.get('recomendaciones_emitidas', 0), data.get('recomendaciones_atendidas', 0),
+                    'usuario_sistema'
+                ))
+                new_id = cur.fetchone()[0]
+                conn.commit()
+                return jsonify({"message": "Informe creado.", "id_informe": new_id}), 201
+                
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en manejar_informes: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/informes/<int:informe_id>', methods=['GET', 'PUT', 'DELETE'])
+def manejar_informe_detalle(informe_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if request.method == 'GET':
+                cur.execute("""
+                    SELECT i.*, inst.nombre_institucion, tog.nombre as nombre_organo 
+                    FROM informes i 
+                    JOIN instituciones inst ON i.id_institucion = inst.id_institucion 
+                    JOIN tipos_organo_gobierno tog ON i.id_tipo_organo = tog.id_tipo_organo 
+                    WHERE i.id_informe = %s;
+                """, (informe_id,))
+                informe = dict(cur.fetchone())
+                return jsonify(informe)
+            
+            if request.method == 'PUT':
+                data = request.form.to_dict()
+                sql = """
+                    UPDATE informes SET 
+                    id_tipo_informe = %s, descripcion = %s, fecha_informe = %s, id_tipo_organo = %s, 
+                    periodo_reportado = %s, periodicidad = %s, recomendaciones_emitidas = %s, recomendaciones_atendidas = %s 
+                    WHERE id_informe = %s;
+                """
+                cur.execute(sql, (
+                    data['id_tipo_informe'], data.get('descripcion'), data['fecha_informe'], 
+                    data['id_tipo_organo'], data['periodo_reportado'], data['periodicidad'],
+                    data.get('recomendaciones_emitidas', 0), data.get('recomendaciones_atendidas', 0), 
+                    informe_id
+                ))
+                conn.commit()
+                return jsonify({"message": "Informe actualizado."})
+            
+            if request.method == 'DELETE':
+                cur.execute("UPDATE informes SET activo = FALSE WHERE id_informe = %s;", (informe_id,))
+                cur.execute("UPDATE recomendaciones SET activo = FALSE WHERE id_informe = %s;", (informe_id,))
+                conn.commit()
+                return jsonify({"message": "Informe y recomendaciones asociadas eliminados."})
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en manejar_informe_detalle: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/reportes/informes', methods=['POST'])
+def generar_reporte_informes_v2():
+    filters = request.json
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = """
+                SELECT
+                    i.id_informe,
+                    resp.nombre as nombre_responsable,
+                    UPPER(inst.nombre_institucion) as institucion,
+                    tog.nombre as nombre_organo,
+                    ti.nombre_informe,
+                    i.periodo_reportado,
+                    i.periodicidad,
+                    i.fecha_informe,
+                    i.descripcion,
+                    i.recomendaciones_emitidas,
+                    i.recomendaciones_atendidas
+                FROM informes i
+                JOIN instituciones inst ON i.id_institucion = inst.id_institucion
+                JOIN tipos_organo_gobierno tog ON i.id_tipo_organo = tog.id_tipo_organo
+                JOIN tipos_informe ti ON i.id_tipo_informe = ti.id_tipo_informe
+                JOIN responsables resp ON inst.id_responsable = resp.id_responsable
+            """
+            where_clauses = ["i.activo = TRUE"]
+            params = []
+
+            if filters.get('periodo_reportado'):
+                where_clauses.append("i.periodo_reportado = %s")
+                params.append(filters['periodo_reportado'])
+            if filters.get('responsable_id'):
+                where_clauses.append("inst.id_responsable = %s")
+                params.append(filters['responsable_id'])
+            if filters.get('institucion_id'):
+                where_clauses.append("inst.id_institucion = %s")
+                params.append(filters['institucion_id'])
+            if filters.get('organo_id'):
+                where_clauses.append("tog.id_tipo_organo = %s")
+                params.append(filters['organo_id'])
+            if filters.get('tipo_informe_id'):
+                where_clauses.append("i.id_tipo_informe = %s")
+                params.append(filters['tipo_informe_id'])
+
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+            
+            sql += " ORDER BY i.fecha_informe DESC;"
+            cur.execute(sql, tuple(params))
+            report_data = [dict(row) for row in cur.fetchall()]
+            return jsonify(report_data)
+
+    except Exception as e:
+        print(f"Error en reporte de informes: {traceback.format_exc()}")
+        return jsonify({"error": "Error al generar el reporte"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================
+# EJECUCIÓN DE LA APLICACIÓN
+# =============================================================
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5001, debug=True)

@@ -1,0 +1,96 @@
+
+
+🏁 Checkpoint Sprint 8.1: Módulo de Reporte Ejecutivo Oficial (PDF)
+1. Objetivo Inicial y Origen del Problema
+Objetivo: Implementar una funcionalidad en el frontend que permita exportar el estado actual del Dashboard (KPIs y Gráficos) a un documento PDF profesional, formato A4 Vertical, que sirva como "Reporte Ejecutivo Oficial".
+
+Requisitos Clave:
+
+Multivista: Debe funcionar para la "Vista Global", "Rendimiento" y "Vista Detallada".
+
+Estética Oficial: Encabezado con Logo institucional, títulos con colores corporativos (Vino/Dorado), y pie de página.
+
+Fidelidad de Datos: Los gráficos deben ser imágenes fieles de lo que se ve en pantalla (Chart.js) y los KPIs deben coincidir.
+
+Contexto: El reporte debe indicar claramente qué filtros se aplicaron (Año, DG, Ramo, Institución).
+
+Problema Original: El sistema carecía de capacidad de exportación. Los intentos iniciales producían PDFs estáticos (solo vista global), con logotipos deformados, títulos de gráficos encimados sobre las imágenes, y fallos silenciosos (el botón dejaba de responder) al intentar calcular coordenadas dinámicas en la Vista Detallada.
+
+2. Solución Implementada
+Se desarrolló un módulo robusto en app.js utilizando la librería jspdf. La solución no requirió cambios en el backend (app.py o SQL), manteniendo la lógica de negocio en el cliente para aprovechar los gráficos ya renderizados.
+
+Características de la Arquitectura:
+
+Detección de Vista Activa: La función exportarReportePDF detecta qué pestaña del Dashboard está visible (clase .hidden) y enruta la lógica a tres sub-funciones especializadas:
+
+generarPDFVistaGlobal
+
+generarPDFRendimiento
+
+generarPDFDetallado
+
+Helpers de Diseño Reutilizables:
+
+drawHeader: Dibuja el logo (con manejo de errores y dimensión 35x12mm), título principal y subtítulo contextual (filtros concatenados).
+
+drawCard: Dibuja las tarjetas de KPIs con estilos CSS simulados en PDF (bordes redondeados, colores de fondo).
+
+addChartTitle / titleFn: Maneja títulos largos haciendo text-wrapping y controlando el espaciado vertical.
+
+Limpieza de Datos: Función cleanPdfText para eliminar emojis (🔴, 🕒) que rompen la codificación de fuentes estándar de PDF.
+
+Mapeo de Contexto: Lógica para convertir IDs de filtros en texto legible (ej. convertir ID de DG en siglas "DG4").
+
+3. Proceso de Depuración (Iteraciones Clave)
+El desarrollo pasó por varias versiones críticas para resolver bugs visuales y lógicos:
+
+Iteración V2.0 - V2.3 (Ajustes Visuales):
+
+Problema: El logo se veía aplastado y a veces desaparecía.
+
+Solución: Se ajustaron las dimensiones a una proporción rectangular y se protegió la carga de la imagen con try-catch y detección de tipo de imagen.
+
+Iteración V2.4 - V2.6 (El problema de la superposición):
+
+Problema: Títulos largos como "Volumen de Recomendaciones..." se escribían sobre las barras del gráfico.
+
+Solución Fallida: Cálculo matemático complejo de altura de texto (causó errores NaN que mataban el botón).
+
+Solución Final: Se optó por abreviar títulos ("Ses. Ord." en lugar de "Sesiones Ordinarias...") y establecer márgenes fijos seguros (+10mm) entre texto y gráfico.
+
+Iteración V2.9 (El "Botón Muerto" en Detalle):
+
+Problema: En la Vista Detallada, el botón de exportar no hacía nada.
+
+Causa: La función auxiliar de títulos no retornaba un valor numérico de altura, rompiendo la suma de coordenadas yPos.
+
+Fix: Se aseguró que todas las funciones de dibujo retornen la altura utilizada para actualizar el cursor verticalmente.
+
+Iteración V3.0 - V3.3 (Contexto y Pulido Final):
+
+Problema: El encabezado decía "Filtro" genérico y faltaban widgets en la vista detallada.
+
+Solución: Se construyó una cadena de texto dinámica: "DG4. Ramo: Agricultura... | 2025". Se insertó el gráfico de barras horizontales faltante y se limpiaron los títulos de las segundas páginas ("Reporte Detallado" en lugar de "Desglose").
+
+4. Estado Final y Artefactos Modificados
+El módulo es ahora estable, visualmente coherente y funcional.
+
+Archivos Afectados:
+
+index.html:
+
+Se añadió la librería: <script src=".../jspdf.umd.min.js"></script>.
+
+Se insertó el botón <button id="btn-export-pdf"> en el encabezado del Dashboard.
+
+app.js:
+
+Se agregó la función principal exportarReportePDF.
+
+Se agregaron las sub-funciones de generación por vista.
+
+Se agregaron los helpers: getBase64ImageFromUrl, drawHeader, drawFooter, cleanPdfText.
+
+Se vinculó el listener del botón dentro de initDashboardModule.
+
+Resultado: El usuario puede navegar, filtrar y exportar cualquiera de las 3 vistas del Dashboard, obteniendo un PDF que refleja exactamente los datos y gráficos visualizados, con una presentación institucional correcta.

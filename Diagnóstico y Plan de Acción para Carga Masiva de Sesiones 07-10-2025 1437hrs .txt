@@ -1,0 +1,78 @@
+
+Diagnóstico y Plan de Acción para Carga Masiva de Sesiones
+Fecha de Análisis: 7 de Octubre de 2025
+Fuente de Datos: Archivo histórico de Sesiones (Texto Plano)
+Base de Datos de Destino: init_final.sql (v21.0)
+
+Veredicto Ejecutivo
+Los datos de sesiones son estructuralmente sólidos, pero presentan inconsistencias en la nomenclatura y al menos un error de integridad referencial crítico que debe ser corregido. Es indispensable un pre-procesamiento programático (un "script traductor") antes de la carga.
+
+Hallazgos Detallados
+He clasificado los problemas en tres categorías:
+
+1. Inconsistencias de Nomenclatura (Problema de Mapeo)
+Es el problema más común. Los nombres de las instituciones y órganos en el archivo de Excel no siempre coinciden 1 a 1 con los nombres oficiales en la base de datos.
+
+Ejemplos de Instituciones:
+
+INCA_RURAL vs. Instituto Nacional para el Desarrollo de Capacidades del Sector Rural, A.C.
+
+FIDEICOMISO_1490 vs. Fideicomiso para Apoyar los Programas, Proyectos y Acciones Ambientales de la Megalópolis
+
+Televisión_Metropolitana vs. Televisión Metropolitana, S.A. de C.V.
+
+SEGOB vs. Secretaría de Gobernación
+
+Ejemplos de Tipos de Órgano:
+
+Uso de mayúsculas (JUNTA DE GOBIERNO) vs. capitalización normal (Junta de Gobierno).
+
+Términos genéricos como ÓRGANO DE GOBIERNO (en el registro 47 para AGN) que deben ser mapeados al id_tipo_organo correcto (2).
+
+Plan de Acción: Crear un "diccionario de mapeo" (ver archivo mapeo_preliminar.json) que el script de carga usará para encontrar el ID correcto en la base de datos a partir del nombre en el Excel.
+
+2. Errores de Integridad Referencial (Problema Crítico)
+Este es el tipo de error que rompía nuestro init.sql original. Significa que existe un registro de sesión para una combinación de (Institución, Tipo de Órgano) que NO está autorizada en nuestra tabla de vínculos institucion_organos.
+
+Error Crítico Detectado:
+
+Registro 125: CIASI - Comisión Intersecretarial.
+
+Análisis: En nuestro init_final.sql, la institución CIASI (ID 42) NO tiene un vínculo con el tipo de órgano Comisión Intersecretarial (ID 7). La carga de este registro fallará porque viola la restricción de clave foránea de la tabla sesiones.
+
+Posible Causa: Puede ser un error en los datos históricos o un vínculo que nos faltó validar.
+
+Plan de Acción:
+
+Validar con Negocio: Preguntar a la Delegada/Comisaria si el registro 125 es correcto.
+
+Si el registro es correcto, se debe añadir el vínculo faltante a institucion_organos: INSERT INTO institucion_organos (id_institucion, id_tipo_organo) VALUES (42, 7);.
+
+Si el registro es un error, debe ser corregido o eliminado del archivo de carga.
+
+3. Datos Anómalos y "Sucios" (Problema de Limpieza)
+Son registros que necesitan una limpieza manual o programática.
+
+Registros Duplicados:
+
+Registros 26 y 27: Son idénticos (IMIPAS, JUNTA DE GOBIERNO, 12/12/2024). Se debe eliminar uno.
+
+Registros Inválidos:
+
+Registro 297: INSTITUCION - COCODI - RESPONSABLE. Parece ser una fila de encabezado o un error de copia. Debe ser eliminado.
+
+Inconsistencias de Formato Menores:
+
+Uso de Ordinaria (minúscula) y ORDINARIA (mayúscula). El script debe normalizar esto a un solo formato antes de buscar su ID.
+
+El formato de fecha dd/mm/yyyy debe ser convertido al formato estándar de SQL YYYY-MM-DD.
+
+Plan de Acción: El script de carga debe incluir lógica para:
+
+Ignorar o reportar filas con datos claramente inválidos (como la 297).
+
+Normalizar todos los datos de texto (a mayúsculas o minúsculas) antes de procesarlos.
+
+Convertir las fechas al formato correcto.
+
+Idealmente, se debería hacer una limpieza previa del archivo Excel para eliminar duplicados.

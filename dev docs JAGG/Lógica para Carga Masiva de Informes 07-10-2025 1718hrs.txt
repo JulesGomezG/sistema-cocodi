@@ -1,0 +1,134 @@
+# -*- coding: utf-8 -*-
+# Pseudocódigo / Lógica para el Módulo de Carga Masiva de Informes
+# Este script describe los pasos que el aplicativo final deberá seguir.
+
+import pandas as pd
+import json
+import re # Usaremos expresiones regulares para el parsing
+
+# Se necesitará una librería para conectar a PostgreSQL, como psycopg2
+
+def cargar_informes_historicos(ruta_excel, ruta_mapeo):
+    """
+    Procesa un archivo Excel con informes históricos y lo carga a la BD.
+    """
+    print("Iniciando el proceso de carga masiva de informes...")
+
+    # --- PASO 1: Cargar datos maestros desde la BD ---
+    mapa_instituciones_db = obtener_instituciones_desde_db() 
+    mapa_tipos_informe_db = obtener_tipos_informe_desde_db()
+    vinculos_existentes = obtener_vinculos_institucion_organo_desde_db()
+
+    # --- PASO 2: Cargar el diccionario de mapeo y el archivo Excel ---
+    with open(ruta_mapeo, 'r', encoding='utf-8') as f:
+        mapeo_nombres = json.load(f)
+    
+    df_informes = pd.read_excel(ruta_excel)
+    
+    registros_exitosos = 0
+    errores = []
+
+    # --- PASO 3: Iterar y procesar cada fila del Excel ---
+    for indice, fila in df_informes.iterrows():
+        try:
+            # --- 3a: Limpieza y Normalización ---
+            nombre_institucion_excel = str(fila['INSTITUCIÓN']).strip()
+            descripcion_informe_excel = str(fila['RECOMENDACIÓN_A:']).strip()
+            fecha_excel = pd.to_datetime(fila['Fecha'], dayfirst=True)
+            recomendaciones_emitidas = int(fila['RECOMENDACIONES_EMITIDAS'])
+            recomendaciones_atendidas = int(fila['Recomendaciones_Atendidas'])
+
+            # --- 3b: Parsing de la descripción del informe ---
+            nombre_tipo_informe = ""
+            periodo_reportado = str(fecha_excel.year) # Valor por defecto
+
+            if "RAAD" in descripcion_informe_excel.upper():
+                nombre_tipo_informe = "RAAD"
+            elif "INFORME DE AUTOEVALUACIÓN" in descripcion_informe_excel.upper():
+                nombre_tipo_informe = "Informe de Autoevaluación"
+            elif "INFORME DE ESTADOS FINANCIEROS" in descripcion_informe_excel.upper():
+                nombre_tipo_informe = "Informe de Estados Financieros"
+            
+            # Extraer el año si está presente
+            match = re.search(r'(\d{4})', descripcion_informe_excel)
+            if match:
+                periodo_reportado = match.group(1)
+
+            if not nombre_tipo_informe:
+                raise ValueError(f"No se pudo determinar el tipo de informe desde '{descripcion_informe_excel}'.")
+
+            # --- 3c: Mapeo (Traducción de nombres a IDs) ---
+            id_institucion = mapear_nombre_a_id(nombre_institucion_excel, mapa_instituciones_db, mapeo_nombres['instituciones'])
+            id_tipo_informe = mapear_nombre_a_id_simple(nombre_tipo_informe, mapa_tipos_informe_db)
+
+            # --- 3d: INFERENCIA DEL ÓRGANO EMISOR (Regla de Negocio Crítica) ---
+            id_tipo_organo = None
+            if id_tipo_informe == 1: # Asumiendo que 1 es el ID de 'RAAD'
+                id_tipo_organo = 1 # ID de 'COCODI'
+            elif id_tipo_informe in [2, 3]: # Asumiendo que 2 y 3 son Autoevaluación y Financieros
+                id_tipo_organo = 2 # ID de 'Órgano de Gobierno'
+            
+            if id_tipo_organo is None:
+                raise ValueError("No se pudo inferir el órgano emisor para el tipo de informe.")
+
+            # --- 3e: Validación de Integridad Referencial ---
+            if (id_institucion, id_tipo_organo) not in vinculos_existentes:
+                raise ValueError(f"Vínculo INEXISTENTE entre Institución ID {id_institucion} y el Órgano emisor inferido ID {id_tipo_organo}.")
+
+            # --- 3f: Preparar datos para inserción ---
+            datos_para_insertar = {
+                "id_institucion": id_institucion,
+                "id_tipo_organo": id_tipo_organo,
+                "id_tipo_informe": id_tipo_informe,
+                "periodicidad": "Anual", # Asumimos periodicidad anual por defecto
+                "periodo_reportado": periodo_reportado,
+                "fecha_informe": fecha_excel.strftime('%Y-%m-%d'),
+                "recomendaciones_emitidas": recomendaciones_emitidas,
+                "recomendaciones_atendidas": recomendaciones_atendidas
+            }
+
+            # --- 3g: Inserción en la Base de Datos ---
+            # ejecutar_insert("informes", datos_para_insertar)
+            registros_exitosos += 1
+
+        except Exception as e:
+            errores.append(f"Fila {indice + 2}: Error - {e}")
+
+    # --- PASO 4: Generar Reporte Final ---
+    print("\n--- Proceso de Carga de Informes Finalizado ---")
+    print(f"Registros exitosos: {registros_exitosos}")
+    print(f"Registros con errores: {len(errores)}")
+    if errores:
+        print("\nDetalle de errores:")
+        for error in errores:
+            print(error)
+            
+    return {"exitosos": registros_exitosos, "errores": errores}
+
+
+# Funciones de ayuda (simuladas y reutilizables)
+def obtener_instituciones_desde_db(): return []
+def obtener_tipos_informe_desde_db(): return [(1, 'RAAD'), (2, 'Informe de Autoevaluación'), (3, 'Informe de Estados Financieros')]
+def obtener_vinculos_institucion_organo_desde_db(): return set()
+
+def mapear_nombre_a_id(nombre_excel, mapa_db, mapa_alias):
+    # Lógica para buscar por nombre, luego sigla, luego alias...
+    nombre_excel_upper = nombre_excel.upper()
+    for id_db, nombre, siglas in mapa_db:
+        if nombre.upper() == nombre_excel_upper or (siglas and siglas.upper() == nombre_excel_upper):
+            return id_db
+    
+    if nombre_excel in mapa_alias:
+        nombre_oficial = mapa_alias[nombre_excel]
+        for id_db, nombre, _ in mapa_db:
+            if nombre == nombre_oficial:
+                return id_db
+    
+    raise ValueError(f"Institución '{nombre_excel}' no encontrada.")
+
+def mapear_nombre_a_id_simple(nombre_excel, mapa_db):
+    nombre_excel_upper = nombre_excel.upper()
+    for id_db, nombre in mapa_db:
+        if nombre.upper() == nombre_excel_upper:
+            return id_db
+    raise ValueError(f"Valor '{nombre_excel}' no encontrado en catálogo.")

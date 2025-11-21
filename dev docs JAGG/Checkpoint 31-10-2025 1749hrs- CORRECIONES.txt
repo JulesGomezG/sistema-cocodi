@@ -1,0 +1,323 @@
+
+
+
+De acuerdo. Dado el ciclo de errores que hemos experimentado, es crucial que el siguiente prompt sea la fuente de verdad y contenga todas las instrucciones de corrección necesarias.
+
+Por favor, copia y pega el siguiente bloque de texto completo como tu primer y único mensaje en la nueva ventana de chat.
+
+📝 Instrucción Exacta para el Nuevo Chat
+"Asume el rol de un asistente de programación experto en análisis, limpieza de datos e integración Full-Stack (Flask/JavaScript).
+
+CONTEXTO: Estamos en el desarrollo del Dashboard COCODI. Hemos completado la funcionalidad de Tendencia, pero las Vistas Global y Detallada no reflejan los datos de Recomendaciones correctamente al cambiar de año, y la Vista Global no muestra el filtro de año.
+
+NUESTRO OBJETIVO: Aplicar las correcciones finales para sincronizar el filtro de año con las consultas de Recomendaciones Globales y asegurar la correcta inicialización de la UI del Dashboard.
+
+ARTEFACTOS: A continuación, te presento los bloques de código que DEBEN SER REEMPLAZADOS en los archivos. Debes procesar estos cambios y devolver la confirmación final de que el Dashboard ahora es funcional y que los datos de Recomendaciones Globales son dinámicos según el año seleccionado.
+
+1. 🐍 app.py: Corrección del Filtro de Recomendaciones Globales
+ACCIÓN: Reemplaza el bloque SQL sql_recs_dg_hybrid COMPLETO (aproximadamente Línea 758) para filtrar correctamente las Recomendaciones hasta el año seleccionado.
+
+Python
+
+# Bloque a reemplazar en app.py (sql_recs_dg_hybrid)
+# --- 7, 8, 9. Recomendaciones (Híbrido) y Total Global (MODIFICADO PARA FILTRAR POR AÑO) ---
+sql_recs_dg_hybrid = """
+    WITH DGs AS ( SELECT id_dg, siglas_dg FROM dgs WHERE activo = TRUE ), 
+    RealRecsCounts AS ( 
+        SELECT 
+            d.id_dg, 
+            COUNT(rec.id_recomendacion) as real_emitidas_count, 
+            COUNT(CASE WHEN rec.estatus IN ('Completada', 'Cerrada') THEN 1 END) as real_atendidas_count 
+        FROM DGs d 
+        LEFT JOIN ramos r ON d.id_dg = r.id_dg 
+        LEFT JOIN instituciones i ON r.id_ramo = i.id_ramo AND i.activo = TRUE 
+        LEFT JOIN recomendaciones rec ON i.id_institucion = rec.id_institucion AND rec.activo = TRUE 
+        -- FILTRO CRÍTICO: Solo contar recomendaciones emitidas hasta el año seleccionado
+        WHERE EXTRACT(YEAR FROM rec.fecha_emision)::INT <= %s OR rec.fecha_emision IS NULL 
+        GROUP BY d.id_dg 
+    ), 
+    HistoricInformesSums AS ( 
+        SELECT 
+            d.id_dg, 
+            COALESCE(SUM(inf.recomendaciones_emitidas), 0) as historic_emitidas_sum, 
+            COALESCE(SUM(inf.recomendaciones_atendidas), 0) as historic_atendidas_sum 
+        FROM DGs d 
+        LEFT JOIN ramos r ON d.id_dg = r.id_ramo 
+        LEFT JOIN instituciones i ON r.id_ramo = i.id_ramo AND i.activo = TRUE 
+        LEFT JOIN informes inf ON i.id_institucion = inf.id_institucion AND inf.activo = TRUE 
+        -- FILTRO CRÍTICO: Solo contar informes reportados hasta el año seleccionado
+        WHERE inf.periodo_reportado::INT <= %s 
+          AND NOT EXISTS ( SELECT 1 FROM recomendaciones r_check WHERE r_check.id_informe = inf.id_informe AND r_check.activo = TRUE ) 
+        GROUP BY d.id_dg 
+    ) 
+    SELECT 
+        d.id_dg, d.siglas_dg, 
+        (COALESCE(rr.real_emitidas_count, 0) + COALESCE(hi.historic_emitidas_sum, 0)) as emitidas_count, 
+        (COALESCE(rr.real_atendidas_count, 0) + COALESCE(hi.historic_atendidas_sum, 0)) as atendidas_count, 
+        CASE WHEN (COALESCE(rr.real_emitidas_count, 0) + COALESCE(hi.historic_emitidas_sum, 0)) > 0 
+             THEN ROUND( ( (COALESCE(rr.real_atendidas_count, 0) + COALESCE(hi.historic_atendidas_sum, 0))::DECIMAL / (COALESCE(rr.real_emitidas_count, 0) + COALESCE(hi.historic_emitidas_sum, 0)) ) * 100, 2) 
+             ELSE 0 
+        END as efficiency_pct 
+    FROM DGs d 
+    LEFT JOIN RealRecsCounts rr ON d.id_dg = rr.id_dg 
+    LEFT JOIN HistoricInformesSums hi ON d.id_dg = hi.id_dg 
+    ORDER BY d.siglas_dg;
+"""
+
+# Bloque a reemplazar en app.py (Línea de ejecución de sql_recs_dg_hybrid - aprox. Línea 795)
+# Reemplazar: cur.execute(sql_recs_dg_hybrid)
+cur.execute(sql_recs_dg_hybrid, (current_year, current_year)) 
+2. 🐍 app.py: Corrección del Filtro de Eficiencia Global
+ACCIÓN: Reemplaza la ejecución de la consulta sql_eficiencia_recs_tipo_dg (aproximadamente Línea 852) para asegurar el filtro de tiempo.
+
+Python
+
+# Bloque a reemplazar en app.py (Línea de ejecución de sql_eficiencia_recs_tipo_dg - aprox. Línea 852)
+# Reemplazar: cur.execute(sql_eficiencia_recs_tipo_dg)
+cur.execute(sql_eficiencia_recs_tipo_dg, (current_year, current_year))
+3. 🖥️ index.html: Integrar Filtro Global y Widget de Alternancia
+ACCIÓN: Reemplaza el bloque COMPLETO de <section id="section-dashboard" ...> con el siguiente código.
+
+HTML
+
+<section id="section-dashboard" class="app-section hidden">
+    <div class="container">
+        <h1>Dashboard</h1>
+
+        <div class="dashboard-nav" style="margin-bottom: 2em; border-bottom: 1px solid #ccc; padding-bottom: 1em;">
+            <button id="btn-view-global" class="btn-primary" data-view="global">Vista Global (Comparativa DG)</button>
+            <button id="btn-view-detailed" class="btn-secondary" data-view="detailed">Vista Detallada (Filtrable)</button>
+        </div>
+
+        <div id="dashboard-global-view">
+            <div class="filtros" id="dashboard-global-filters" style="margin-bottom: 2em;">
+                <div>
+                    <label for="dg-filtro-año">**Seleccione Año para la Vista Global:**</label>
+                    <select id="dg-filtro-año" required>
+                        <option value="">Cargando Años...</option>
+                    </select>
+                </div>
+            </div>
+            <h2>Comparativa por Dirección General - <span id="dg-titulo-anual">Año Actual</span></h2>
+            <div class="dashboard-grid">
+
+                <div class="dashboard-widget">
+                    <h3>Distribución de Instituciones Asignadas</h3>
+                    <div class="chart-container">
+                        <canvas id="global-inst-distribucion-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>Instituciones con Focos Rojos*</h3>
+                    <div class="chart-container">
+                        <canvas id="global-focos-rojos-chart"></canvas>
+                    </div>
+                    <small>*Instituciones sin sesiones ordinarias registradas y con informes requeridos faltantes en el año.</small>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>Total Sesiones Ordinarias Realizadas - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-sesiones-ordinarias-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>Total Sesiones Extraordinarias Realizadas - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-sesiones-extraordinarias-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget widget-large">
+                    <h3>Total Sesiones Realizadas por Tipo de Órgano - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-sesiones-por-tipo-organo-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget widget-large">
+                    <h3>Total Informes Entregados por Tipo de Informe - Año Actual</h3>
+                    <div class="chart-container">
+                        <canvas id="global-informes-entregados-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>Total Recomendaciones Emitidas</h3>
+                    <div id="global-kpi-total-recs-emitidas" class="kpi-container" style="display: flex; align-items: center; justify-content: center; height: 100%;">
+                        <p>Cargando...</p>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget widget-large">
+                    <h3>Volumen Recomendaciones (Atendidas vs Pendientes)</h3>
+                    <div class="chart-container">
+                        <canvas id="global-recs-volumen-chart"></canvas>
+                    </div>
+                </div>
+				
+				<div class="dashboard-widget widget-large">
+                    <h3>Eficiencia de Recomendaciones por Origen (por DG)</h3>
+                    <div class="chart-container">
+                        <canvas id="global-eficiencia-recs-por-tipo-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h3>% Recomendaciones (Atención s/ Emitidas)</h3>
+                    <div class="chart-container">
+                        <canvas id="global-recs-eficiencia-chart"></canvas>
+                    </div>
+                </div>
+            </div> 
+        </div> 
+        
+        <div id="dashboard-detailed-view" class="hidden">
+            <h2>Análisis Detallado</h2>
+
+            <div class="filtros" id="dashboard-detailed-filters">
+                <div>
+                    <label for="dd-filtro-año">Año:</label>
+                    <select id="dd-filtro-año" required> <option value="">Seleccione...</option> </select>
+                </div>
+                <div>
+                    <label for="dd-filtro-dg">DG:</label>
+                    <select id="dd-filtro-dg" required> <option value="">Seleccione...</option> </select>
+                </div>
+                <div>
+                    <label for="dd-filtro-ramo">Ramo:</label>
+                    <select id="dd-filtro-ramo" disabled> <option value="">Seleccione DG...</option> </select>
+                </div>
+                <div>
+                    <label for="dd-filtro-responsable">Responsable:</label>
+                    <select id="dd-filtro-responsable" disabled> <option value="">Seleccione Ramo...</option> </select>
+                </div>
+                <div>
+                    <label for="dd-filtro-institucion">Institución:</label>
+                    <select id="dd-filtro-institucion" disabled> <option value="">Seleccione Responsable...</option> </select>
+                </div>
+            </div>
+            
+            <div id="dd-view-toggle-container" class="hidden" style="text-align: right; padding: 0 0 1.5em 0; border-bottom: 2px solid #eee; margin-bottom: 1.5em;">
+                <button id="btn-show-comparative" class="btn-info">Ver Comparativas del Ramo</button>
+                <button id="btn-show-normal-widgets" class="btn-secondary hidden">Ver Widgets Detalle DG</button>
+            </div>
+
+            <div id="dd-normal-view">
+                <div class="dashboard-grid">
+                    
+                    <div class="dashboard-widget" id="dd-widget-focos-rojos">
+                        <h3>Instituciones con Focos Rojos*</h3>
+                        <div id="dd-kpi-focos-rojos" class="kpi-container" style="margin-bottom: 10px;"><p>Seleccione Año y DG...</p></div>
+                        <button id="dd-btn-detalle-focos-rojos" class="btn-secondary btn-icon" style="font-size: 0.8em; padding: 5px 10px;" disabled>Ver Detalle</button>
+                        <small style="display: block; margin-top: 10px;">*Sin sesiones ordinarias Y con informes requeridos faltantes.</small>
+                    </div>
+
+                    <div class="dashboard-widget" id="dd-widget-informes-faltantes">
+                        <h3>Informes Requeridos Faltantes</h3>
+                        <div id="dd-kpi-informes-faltantes" class="kpi-container" style="margin-bottom: 10px;"><p>Seleccione Año y DG...</p></div>
+                        <button id="dd-btn-detalle-informes-faltantes" class="btn-secondary btn-icon" style="font-size: 0.8em; padding: 5px 10px;" disabled>Ver Detalle</button>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h3>Avance Recomendaciones (%)</h3>
+                        <div class="chart-container" style="height: 180px;">
+                            <canvas id="dd-chart-recs-avance"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h3>Sesiones Ordinarias Realizadas</h3>
+                        <div id="dd-kpi-sesiones-ord" class="kpi-container"><p>Seleccione Año y DG...</p></div>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h3>Sesiones Extraordinarias Realizadas</h3>
+                        <div id="dd-kpi-sesiones-ext" class="kpi-container"><p>Seleccione Año y DG...</p></div>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h3>Informes Entregados por Tipo</h3>
+                        <div class="kpi-container chart-container">
+                            <div class="chart-wrapper" style="height: 180px;"> 
+                                <canvas id="dd-chart-informes-tipo"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-widget widget-large">
+                        <h3>Avance de Recomendaciones por Origen de Informe</h3>
+                        <div class="chart-container">
+                            <canvas id="dd-chart-avance-recs-por-tipo"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widget widget-large">
+                        <h3>Sesiones Ordinarias por Tipo de Órgano</h3>
+                        <div class="chart-container">
+                            <canvas id="dd-grafico-sesiones-ord-por-organo-esp"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-widget widget-large">
+                        <h3>Sesiones Extraordinarias por Tipo de Órgano</h3>
+                        <div class="chart-container">
+                            <canvas id="dd-grafico-sesiones-ext-por-organo-esp"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-widget widget-large">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 id="dd-tendencia-title" style="margin: 0;">Tendencia Anual: Sesiones Ordinarias</h3>
+                            <div id="dd-tendencia-toggle" class="btn-group">
+                                <button class="btn-primary" id="btn-tendencia-sesiones">Sesiones Ord.</button>
+                                <button class="btn-secondary" id="btn-tendencia-informes">Informes Entregados</button>
+                                <button class="btn-secondary" id="btn-tendencia-recomendaciones">Recomendaciones Emitidas</button> 
+                            </div>
+                        </div>
+                        <div class="chart-container" style="height: 350px;">
+                            <canvas id="dd-chart-tendencia-sesiones"></canvas>
+                        </div>
+                    </div>
+                    </div>
+            </div>
+            
+            <div id="dd-institution-comparison-view" class="hidden" style="margin-top: 2em;">
+                <h3 style="text-align: center; margin-bottom: 20px;">Comparativa por Institución del Ramo</h3>
+                <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr;">
+                    
+                    <div class="dashboard-widget">
+                        <h4>Sesiones Ordinarias Realizadas</h4>
+                        <div class="chart-container" style="height: 300px;"> 
+                            <canvas id="dd-chart-inst-sesiones-ord"></canvas>
+                        </div>
+                    </div>
+                    <div class="dashboard-widget">
+                        <h4>Sesiones Extraordinarias Realizadas</h4>
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="dd-chart-inst-sesiones-ext"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widget">
+                        <h4>% Avance Recomendaciones</h4>
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="dd-chart-inst-recs-avance"></canvas>
+                        </div>
+                    </div>
+                    <div class="dashboard-widget">
+                        <h4>Total Informes Entregados (Año Seleccionado)</h4>
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="dd-chart-inst-informes"></canvas>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            
+			<div id="dd-comparative-view" class="hidden">
+			</div>
+		</div>	
+	</section>

@@ -1,0 +1,35 @@
+
+
+Checkpoint: Situación Actual y Rediseño Estratégico
+Este es un resumen de dónde estamos parados, basado en los hechos que hemos descubierto en las últimas 24 horas.
+
+1. Dónde Estamos Parados (La Realidad Actual)
+Problema de Datos Crítico: Hemos confirmado (vía SELECT SUM...) que los datos en la tabla informes para periodo_reportado = '2025' son incorrectos. La base de datos contiene 0 Emitidas y 220 Atendidas.
+
+Fuente de Verdad (Bitácora): Sabemos que los datos correctos (según tu bitácora) deberían ser 188 Emitidas y 77 Atendidas.
+
+Estado del Código (Dashboard): El código actual de la Vista Global (con la FASE 1 "pura") está funcionando técnicamente bien: está reportando fielmente los datos incorrectos (0/220) que hay en la base de datos.
+
+Estado del Código (Carga): Dado que la recarga de la bitácora (188/77) resultó en 0/220 en la BD, hemos deducido que el script de carga masiva (process_informes_file) tiene un bug crítico que lee mal el archivo Excel/CSV.
+
+Causa de Confusión Pasada (Mi Error):
+
+El app.py del "viernes 31" parecía funcionar porque usaba una lógica híbrida que no filtraba por año en la Vista Global, mostrando un total histórico (220) en lugar del de 2025.
+
+Mis "soluciones" posteriores (el parche GREATEST()) fueron un error grave donde inventé datos falsos (220/220), rompiendo la regla de oro de no asumir nada.
+
+2. Qué Estamos Buscando (El Objetivo)
+A corto plazo: Que el Dashboard de 2025 refleje la verdad de la bitácora (188/77).
+
+A largo plazo (El Objetivo Real): Dejar de apagar incendios. Queremos un sistema sólido, estable y preparado para el futuro. Esto implica tener un Modelo ER robusto y un proceso de carga de datos confiable que maneje correctamente tanto los datos históricos (resúmenes en informes) como los datos actuales/futuros (detalles en recomendaciones).
+
+3. Hacia Dónde Vamos (El Plan de Acción)
+El plan ya no es aplicar parches al dashboard. El plan es una revisión fundamental:
+
+Analizar el init.sql y los datos de origen (las bitácoras).
+
+Encontrar el bug en el script de carga (process_informes_file) que causa la discrepancia 188/77 vs. 0/220.
+
+Evaluar si el Modelo ER actual (con dos fuentes de verdad) es sostenible o si debemos rediseñarlo.
+
+Implementar una solución de raíz (arreglar el script de carga y/o migrar los datos).

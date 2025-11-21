@@ -1,0 +1,4082 @@
+
+Checkpoint: Proyecto COCODI (Estado Actual y Funcional)
+Fecha: 16 de Octubre de 2025
+Este checkpoint representa el estado estable y funcional del proyecto tras la reparación de los filtros en cascada.
+
+
+¡Excelente! Es una noticia fantástica. Me alegra mucho que la implementación de la cascada de filtros haya sido un éxito. 🚀
+
+Como lo solicitas, aquí tienes el "Checkpoint" detallado con los tres artefactos (app.py, index.html, y app.js) en su estado final y funcional, reflejando todos los cambios que implementamos juntos.
+
+Checkpoint: Artefactos del Proyecto (16/OCT/2025)
+1. app.py (Final)
+Contiene la lógica del backend con los endpoints /api/responsables, /api/instituciones, /api/informes y /api/recomendaciones actualizados para soportar los filtros en cascada.
+
+Python
+
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import os
+import psycopg2
+import psycopg2.extras
+from werkzeug.utils import secure_filename
+import datetime
+import traceback
+import pandas as pd
+import json
+import re
+import math
+from datetime import date
+
+# --- CONFIGURACIÓN DE LA APP ---
+app = Flask(__name__, static_folder='frontend', static_url_path='')
+CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+try:
+    # Asegúrate de que 'mapeo_final.json' esté en la misma carpeta que app.py
+    with open('mapeo_final.json', 'r', encoding='utf-8') as f:
+        mapeo_datos = json.load(f)
+    print("✅ Diccionario de mapeo 'mapeo_final.json' cargado correctamente.")
+except FileNotFoundError:
+    print("⚠️ Error: El archivo 'mapeo_final.json' no se encontró. La carga masiva fallará.")
+    mapeo_datos = {}
+
+def get_db_connection():
+    """Crea una conexión a la base de datos."""
+    return psycopg2.connect(os.environ.get('DATABASE_URL'))
+
+# =============================================================
+# ENDPOINTS PARA SERVIR EL FRONTEND
+# =============================================================
+@app.route('/')
+def serve_index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_frontend_files(path):
+    full_path = os.path.join(app.static_folder, path)
+    if os.path.exists(full_path):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
+
+# =============================================================
+# ENDPOINTS PARA MANEJO DE ARCHIVOS (v2.0 AJUSTADO)
+# =============================================================
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    files = request.files.getlist('files')
+    if not files or files[0].filename == '':
+        return jsonify({"error": "No se encontraron archivos"}), 400
+
+    parent_type = request.form.get('parent_type')
+    parent_id = request.form.get('parent_id', type=int)
+
+    if not parent_type or not parent_id:
+        return jsonify({"error": "Faltan datos para la carga"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            new_ids = []
+            for file in files:
+                if file:
+                    filename = secure_filename(file.filename)
+                    target_folder = os.path.join(app.config['UPLOAD_FOLDER'], parent_type)
+                    os.makedirs(target_folder, exist_ok=True)
+                    file_path = os.path.join(target_folder, filename)
+                    file.save(file_path)
+                    relative_path = os.path.join(parent_type, filename).replace("\\", "/")
+                    sql = "INSERT INTO evidencias (parent_id, parent_type, nombre_archivo, url_almacenamiento) VALUES (%s, %s, %s, %s) RETURNING id_evidencia;"
+                    cur.execute(sql, (parent_id, parent_type, filename, relative_path))
+                    new_id = cur.fetchone()[0]
+                    new_ids.append(new_id)
+            conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"message": "Archivos subidos", "id_evidencias": new_ids}), 201
+
+@app.route('/uploads/<path:filename>')
+def serve_uploaded_file(filename):
+    return send_from_directory(os.path.abspath(app.config['UPLOAD_FOLDER']), filename)
+
+@app.route('/api/evidencias', methods=['GET'])
+def obtener_evidencias():
+    parent_type = request.args.get('parent_type')
+    parent_id = request.args.get('parent_id', type=int)
+    if not parent_type or not parent_id:
+        return jsonify({"error": "Faltan parámetros"}), 400
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("SELECT * FROM evidencias WHERE parent_type = %s AND parent_id = %s AND activo = TRUE;", (parent_type, parent_id))
+            evidencias = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(evidencias)
+
+
+def construir_mapeo_oficial(cur):
+    """
+    Construye los diccionarios de mapeo desde la BD, con claves 'sanitizadas'
+    para ser inmune a espacios extra o caracteres invisibles.
+    """
+    mapeo = {'instituciones': {}, 'organos': {}, 'tipos_informe': {}}
+    
+    # Mapeo de Instituciones
+    cur.execute("SELECT id_institucion, nombre_institucion FROM instituciones;")
+    for id_inst, nombre_inst in cur.fetchall():
+        if nombre_inst:
+            nombre_sanitizado = re.sub(r'\s+', ' ', nombre_inst.replace('\xa0', ' ')).strip().upper()
+            mapeo['instituciones'][nombre_sanitizado] = {'id': id_inst, 'nombre_oficial': nombre_inst}
+
+    # Mapeo de Órganos
+    cur.execute("SELECT id_tipo_organo, nombre FROM tipos_organo_gobierno;")
+    for id_org, nombre_org in cur.fetchall():
+        if nombre_org:
+            nombre_sanitizado = re.sub(r'\s+', ' ', nombre_org.replace('\xa0', ' ')).strip().upper()
+            mapeo['organos'][nombre_sanitizado] = {'id': id_org, 'nombre_oficial': nombre_org}
+
+    # NUEVO: Mapeo de Tipos de Informe
+    cur.execute("SELECT id_tipo_informe, nombre_informe FROM tipos_informe;")
+    for id_tipo, nombre_tipo in cur.fetchall():
+        if nombre_tipo:
+            nombre_sanitizado = re.sub(r'\s+', ' ', nombre_tipo.replace('\xa0', ' ')).strip().upper()
+            mapeo['tipos_informe'][nombre_sanitizado] = {'id': id_tipo, 'nombre_oficial': nombre_tipo}
+            
+    print("✅ Diccionario de mapeo oficial y sanitizado (instituciones, organos, tipos_informe) construido desde la BD.")
+    return mapeo
+
+# =============================================================
+# ENDPOINTS PARA CARGA MASIVA DE DATOS (HISTÓRICOS)
+# =============================================================
+
+def process_sesiones_file(cur, file, mapeo_datos):
+    """
+    Procesa, valida e inserta los datos del archivo de sesiones.
+    Usa sanitización profunda para evitar errores de coincidencia por espacios.
+    """
+    filename = file.filename.lower()
+    try:
+        if filename.endswith('.xlsx'):
+            df = pd.read_excel(file)
+        elif filename.endswith('.csv'):
+            df = pd.read_csv(file, encoding='latin-1')
+        else:
+            return {"status": "error", "message": "Formato de archivo no soportado. Por favor, suba un .xlsx o .csv"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error al leer el archivo: {str(e)}"}
+
+    df.columns = [str(col).strip().upper() for col in df.columns]
+
+    df = df[~(df['INSTITUCIÓN'] == 'INSTITUCIÓN')]
+    df.drop_duplicates(subset=['INSTITUCIÓN', 'TIPO DE ÓRGANO COLEGIADO', 'FECHA'], keep='first', inplace=True)
+    df.reset_index(drop=True, inplace=True)
+
+    for index, row in df.iterrows():
+        try:
+            nombre_inst_raw = str(row['INSTITUCIÓN'])
+            nombre_org_raw = str(row['TIPO DE ÓRGANO COLEGIADO'])
+            
+            nombre_inst_sanitizado = re.sub(r'\s+', ' ', nombre_inst_raw.replace('\xa0', ' ')).strip().upper()
+            nombre_org_sanitizado = re.sub(r'\s+', ' ', nombre_org_raw.replace('\xa0', ' ')).strip().upper()
+
+            institucion_mapeada = mapeo_datos['instituciones'].get(nombre_inst_sanitizado)
+            organo_mapeado = mapeo_datos['organos'].get(nombre_org_sanitizado)
+
+            if not institucion_mapeada or not organo_mapeado:
+                raise ValueError(f"No se encontró un catálogo oficial para: '{nombre_inst_raw}' | '{nombre_org_raw}'.")
+
+            id_institucion = institucion_mapeada['id']
+            id_tipo_organo = organo_mapeado['id']
+            
+            sql_check = "SELECT 1 FROM institucion_organos WHERE id_institucion = %s AND id_tipo_organo = %s"
+            cur.execute(sql_check, (id_institucion, id_tipo_organo))
+            if cur.fetchone() is None:
+                raise ValueError(f"La combinación '{institucion_mapeada['nombre_oficial']}' y '{organo_mapeado['nombre_oficial']}' no es válida.")
+
+            # --- INICIO DE LA CORRECCIÓN DE LÓGICA ---
+            tipo_sesion_str = str(row.get('TIPO DE SESIÓN', '')).strip().upper()
+            # Esta lógica es más segura: si es extraordinaria, es tipo 2. Cualquier otra cosa es tipo 1.
+            id_tipo_sesion = 2 if 'EXTRAORDINARIA' in tipo_sesion_str else 1
+            # --- FIN DE LA CORRECCIÓN DE LÓGICA ---
+
+            fecha_sesion = pd.to_datetime(row['FECHA']).strftime('%Y-%m-%d')
+            
+            # --- CORRECCIÓN DEL NOMBRE OFICIAL ---
+            # Guardamos el tipo de sesión del Excel en el nombre para más claridad.
+            nombre_oficial = f"Sesión Histórica - {tipo_sesion_str.title()}"
+            
+            sql_insert = """
+                INSERT INTO sesiones (id_institucion, id_tipo_organo, id_tipo_sesion, fecha_realizada, año, estatus, usuario_creacion, nombre_oficial_sesion)
+                VALUES (%s, %s, %s, %s, %s, 'Realizada', 'carga_masiva', %s);
+            """
+            cur.execute(sql_insert, (id_institucion, id_tipo_organo, id_tipo_sesion, fecha_sesion, int(row['AÑO']), nombre_oficial))
+
+        except Exception as e:
+            return {"status": "error", "message": f"Error en la fila {index + 2}: {str(e)}"}
+    
+    return {"status": "success", "message": f"Se procesaron e insertaron {len(df)} registros de sesiones."}
+
+def process_informes_file(cur, file, mapeo_datos):
+    """
+    Procesa, valida e inserta los datos del archivo de informes.
+    VERSIÓN FINAL 2: Añade un valor por defecto para la columna 'periodicidad'.
+    """
+    filename = file.filename.lower()
+    try:
+        if filename.endswith('.xlsx'):
+            df = pd.read_excel(file)
+        elif filename.endswith('.csv'):
+            df = pd.read_csv(file, encoding='latin-1')
+        else:
+            return {"status": "error", "message": "Formato de archivo no soportado. Por favor, suba un .xlsx o .csv"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error al leer el archivo: {str(e)}"}
+
+    df.columns = [str(col).strip().upper() for col in df.columns]
+    df.reset_index(drop=True, inplace=True)
+
+    for index, row in df.iterrows():
+        try:
+            institucion_nombre_raw = str(row['INSTITUCIÓN'])
+            tipo_informe_raw = str(row['TIPO DE INFORME'])
+            
+            institucion_sanitizada = re.sub(r'\s+', ' ', institucion_nombre_raw.replace('\xa0', ' ')).strip().upper()
+            tipo_informe_sanitizado = re.sub(r'\s+', ' ', tipo_informe_raw.replace('\xa0', ' ')).strip().upper()
+
+            institucion_mapeada = mapeo_datos['instituciones'].get(institucion_sanitizada)
+            tipo_informe_mapeado = mapeo_datos['tipos_informe'].get(tipo_informe_sanitizado)
+            
+            if not institucion_mapeada:
+                raise ValueError(f"No se encontró un catálogo oficial para la institución: '{institucion_nombre_raw}'.")
+            if not tipo_informe_mapeado:
+                raise ValueError(f"No se encontró un catálogo oficial para el tipo de informe: '{tipo_informe_raw}'.")
+
+            id_institucion = institucion_mapeada['id']
+            id_tipo_informe = tipo_informe_mapeado['id']
+            id_tipo_organo = int(row['ID ÓRGANO COLEGIADO'])
+
+            cur.execute("SELECT 1 FROM institucion_organos WHERE id_institucion = %s AND id_tipo_organo = %s", (id_institucion, id_tipo_organo))
+            if cur.fetchone() is None:
+                raise ValueError(f"La combinación de la institución '{institucion_mapeada['nombre_oficial']}' y el órgano ID '{id_tipo_organo}' no es un vínculo válido.")
+
+            periodo_reportado = int(row['PERIODO'])
+            fecha_informe = pd.to_datetime(row['FECHA']).strftime('%Y-%m-%d')
+            emitidas = int(row.get('EMITIDAS', 0))
+            atendidas = int(row.get('ATENDIDAS', 0))
+            
+            # --- CORRECCIÓN: Añadimos 'periodicidad' al INSERT ---
+            sql_insert = """
+                INSERT INTO informes (id_institucion, id_tipo_organo, id_tipo_informe, periodo_reportado, fecha_informe, recomendaciones_emitidas, recomendaciones_atendidas, usuario_creacion, periodicidad)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'carga_masiva', %s);
+            """
+            # --- CORRECCIÓN: Añadimos el valor por defecto 'Anual' ---
+            cur.execute(sql_insert, (id_institucion, id_tipo_organo, id_tipo_informe, periodo_reportado, fecha_informe, emitidas, atendidas, 'No especificado'))
+
+        except Exception as e:
+            return {"status": "error", "message": f"Error en la fila {index + 2} del archivo de informes: {str(e)}"}
+
+    return {"status": "success", "message": f"Se procesaron e insertaron {len(df)} registros de informes."}
+    
+@app.route('/api/bulk-upload', methods=['POST'])
+def bulk_upload_file():
+    print("\n---[DEBUG] INICIANDO RUTA /api/bulk-upload ---", flush=True)
+
+    if 'file' not in request.files:
+        return jsonify({"status": "error", "message": "No se encontró el archivo en la petición (llave 'file')"}), 400
+    
+    file = request.files['file']
+    upload_type = request.form.get('type')
+
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "El nombre del archivo está vacío"}), 400
+
+    if upload_type not in ['sesiones', 'informes']:
+        return jsonify({"status": "error", "message": f"Tipo de carga no válido o no especificado. Se recibió: '{upload_type}'"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            mapeo_datos = construir_mapeo_oficial(cur)
+            
+            if upload_type == 'sesiones':
+                # Pasamos el objeto 'file' completo
+                result = process_sesiones_file(cur, file, mapeo_datos)
+            else:
+                # Pasamos el objeto 'file' completo
+                result = process_informes_file(cur, file, mapeo_datos)
+
+            if result['status'] == 'error':
+                conn.rollback()
+                return jsonify(result), 400
+            
+            conn.commit()
+            return jsonify(result), 200
+
+    except Exception as e:
+        conn.rollback()
+        error_details = traceback.format_exc()
+        print(f"Error fatal en bulk_upload_file: {error_details}", flush=True)
+        return jsonify({"status": "error", "message": f"Error inesperado en el servidor: {str(e)}"}), 500
+    
+    finally:
+        if conn:
+            conn.close()
+            
+            
+# =============================================================
+# ENDPOINTS DE CATÁLOGOS
+# =============================================================
+@app.route('/api/responsables', methods=['GET'])
+def obtener_responsables():
+    id_ramo = request.args.get('id_ramo', type=int)
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            # Si se proporciona un id_ramo, se filtran los responsables
+            if id_ramo:
+                sql = """
+                    SELECT DISTINCT r.id_responsable, r.nombre 
+                    FROM responsables r
+                    JOIN instituciones i ON r.id_responsable = i.id_responsable
+                    WHERE i.id_ramo = %s AND r.activo = TRUE 
+                    ORDER BY r.nombre;
+                """
+                cur.execute(sql, (id_ramo,))
+            else:
+                # Si no, se obtienen todos como antes
+                sql = 'SELECT id_responsable, nombre FROM responsables WHERE activo = TRUE ORDER BY nombre;'
+                cur.execute(sql)
+            
+            responsables = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(responsables)
+
+@app.route('/api/instituciones', methods=['GET'])
+def obtener_instituciones():
+    id_dg = request.args.get('id_dg', type=int)
+    id_ramo = request.args.get('id_ramo', type=int)
+    responsable_id = request.args.get('responsable_id', type=int)
+    
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            # La consulta ahora une todas las tablas necesarias para filtrar
+            sql = """
+                SELECT 
+                    i.id_institucion, i.siglas, UPPER(i.nombre_institucion) as nombre_institucion,
+                    r.id_ramo, r.nombre_ramo,
+                    d.id_dg, d.nombre_dg,
+                    n.id_naturaleza, n.nombre as nombre_naturaleza,
+                    njd.id_naturaleza_juridica, njd.nombre as nombre_naturaleza_juridica,
+                    resp.id_responsable, resp.nombre as nombre_responsable
+                FROM instituciones i
+                JOIN responsables resp ON i.id_responsable = resp.id_responsable
+                JOIN ramos r ON i.id_ramo = r.id_ramo
+                JOIN dgs d ON r.id_dg = d.id_dg
+                JOIN naturalezas n ON i.id_naturaleza = n.id_naturaleza
+                JOIN naturalezas_juridicas_desglose njd ON i.id_naturaleza_juridica = njd.id_naturaleza_juridica
+            """
+            params = []
+            where_clauses = ["i.activo = TRUE"]
+            
+            # Construcción dinámica de la cláusula WHERE
+            if id_dg:
+                where_clauses.append("d.id_dg = %s")
+                params.append(id_dg)
+            if id_ramo:
+                where_clauses.append("i.id_ramo = %s")
+                params.append(id_ramo)
+            if responsable_id:
+                where_clauses.append("i.id_responsable = %s")
+                params.append(responsable_id)
+
+            if len(where_clauses) > 1:
+                sql += " WHERE " + " AND ".join(where_clauses)
+
+            sql += " ORDER BY nombre_institucion;"
+            
+            cur.execute(sql, tuple(params))
+            instituciones = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(instituciones)
+
+@app.route('/api/organos-colegiados', methods=['GET'])
+def obtener_organos_filtrados():
+    institucion_id = request.args.get('institucion_id', type=int)
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if institucion_id:
+                # --- INICIO DE LA CORRECCIÓN ---
+                # Se añaden los alias 'AS' para que los nombres de las columnas coincidan con el frontend
+                sql = """
+                    SELECT
+                        t2.id_tipo_organo AS id_organo_colegiado,
+                        t2.nombre AS nombre_organo,
+                        t2.id_padre 
+                    FROM institucion_organos AS t1 
+                    JOIN tipos_organo_gobierno AS t2 ON t1.id_tipo_organo = t2.id_tipo_organo 
+                    WHERE t1.id_institucion = %s ORDER BY t2.nombre;
+                """
+                # --- FIN DE LA CORRECCIÓN ---
+                cur.execute(sql, (institucion_id,))
+            else:
+                # --- INICIO DE LA CORRECCIÓN ---
+                # También se añaden alias a la consulta general para consistencia
+                sql = """
+                    SELECT
+                        id_tipo_organo AS id_organo_colegiado,
+                        nombre AS nombre_organo,
+                        id_padre
+                    FROM tipos_organo_gobierno
+                    WHERE activo = TRUE ORDER BY nombre;
+                """
+                # --- FIN DE LA CORRECCIÓN ---
+                cur.execute(sql)
+            organos = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(organos)
+    
+    
+# =============================================================
+# NUEVOS ENDPOINTS DE CATÁLOGOS (v2.0)
+# =============================================================
+
+@app.route('/api/dgs', methods=['GET'])
+def obtener_dgs():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute('SELECT * FROM dgs WHERE activo = TRUE ORDER BY nombre_dg;')
+            items = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(items)
+
+@app.route('/api/ramos', methods=['GET'])
+def obtener_ramos():
+    id_dg = request.args.get('id_dg', type=int)
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = 'SELECT * FROM ramos WHERE activo = TRUE'
+            params = []
+            if id_dg:
+                sql += ' AND id_dg = %s'
+                params.append(id_dg)
+            sql += ' ORDER BY nombre_ramo;'
+            cur.execute(sql, params)
+            items = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(items)
+
+@app.route('/api/naturalezas', methods=['GET'])
+def obtener_naturalezas():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute('SELECT * FROM naturalezas ORDER BY nombre;')
+            items = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(items)
+
+@app.route('/api/naturalezas-juridicas', methods=['GET'])
+def obtener_naturalezas_juridicas():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute('SELECT * FROM naturalezas_juridicas_desglose WHERE activo = TRUE ORDER BY nombre;')
+            items = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(items)
+
+# =============================================================
+# ENDPOINTS PARA DIRECTORIO (v2.0 AJUSTADO)
+# =============================================================
+@app.route('/api/directorio', methods=['GET'])
+def obtener_contactos():
+    institucion_id = request.args.get('institucion_id', type=int)
+    organo_id_str = request.args.get('organo_id') 
+
+    if not institucion_id:
+        return jsonify([]), 200 # Devolver lista vacía en vez de error
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if organo_id_str is not None:
+                if organo_id_str == '0': 
+                    sql = "SELECT * FROM directorio_contactos WHERE id_institucion = %s AND id_tipo_organo IS NULL AND activo = TRUE ORDER BY nombre_contacto;"
+                    params = (institucion_id,)
+                else:
+                    sql = "SELECT * FROM directorio_contactos WHERE id_institucion = %s AND id_tipo_organo = %s AND activo = TRUE ORDER BY nombre_contacto;"
+                    params = (institucion_id, int(organo_id_str))
+            else:
+                sql = "SELECT * FROM directorio_contactos WHERE id_institucion = %s AND activo = TRUE ORDER BY nombre_contacto;"
+                params = (institucion_id,)
+            cur.execute(sql, params)
+            contactos = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(contactos)
+
+@app.route('/api/directorio', methods=['POST'])
+def crear_contacto():
+    data = request.form.to_dict()
+    required_fields = ['id_institucion', 'nombre_contacto']
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Faltan campos requeridos"}), 400
+
+    organo_id = data.get('id_tipo_organo')
+    if not organo_id or organo_id == '0':
+        organo_id = None
+    
+    try:
+        id_institucion_int = int(data['id_institucion'])
+        organo_id_int = int(organo_id) if organo_id is not None else None
+    except (ValueError, TypeError):
+        return jsonify({"error": "El ID de institución u órgano no es un número válido"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+                INSERT INTO directorio_contactos (id_institucion, id_tipo_organo, nombre_contacto, telefono, extension, email, movil, direccion)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_contacto;
+            """
+            cur.execute(sql, (id_institucion_int, organo_id_int, data['nombre_contacto'], data.get('telefono'), data.get('extension'), data.get('email'), data.get('movil'), data.get('direccion')))
+            new_id = cur.fetchone()[0]
+            conn.commit()
+    except psycopg2.Error as e:
+        conn.rollback() 
+        return jsonify({"error": f"Error en la base de datos: {e.pgerror}"}), 500
+    finally:
+        conn.close()
+    return jsonify({"message": "Contacto creado.", "id_contacto": new_id}), 201
+
+@app.route('/api/directorio/<int:contacto_id>', methods=['PUT'])
+def actualizar_contacto(contacto_id):
+    data = request.form.to_dict()
+    organo_id = data.get('id_tipo_organo')
+    if organo_id == '0':
+        organo_id = None
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+                UPDATE directorio_contactos
+                SET nombre_contacto = %s, telefono = %s, extension = %s, email = %s, movil = %s, direccion = %s, id_tipo_organo = %s
+                WHERE id_contacto = %s;
+            """
+            cur.execute(sql, (data.get('nombre_contacto'), data.get('telefono'), data.get('extension'), data.get('email'), data.get('movil'), data.get('direccion'), organo_id, contacto_id))
+            conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"message": "Contacto actualizado."})
+
+@app.route('/api/directorio/<int:contacto_id>', methods=['DELETE'])
+def eliminar_contacto(contacto_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE directorio_contactos SET activo = FALSE WHERE id_contacto = %s;", (contacto_id,))
+            conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"message": "Contacto eliminado."})
+
+# =============================================================
+# ENDPOINT PARA DASHBOARD (v2.0 REESTRUCTURADO)
+# =============================================================
+@app.route('/api/dashboard/stats', methods=['GET'])
+def get_dashboard_stats():
+    conn = get_db_connection()
+    try:
+        current_year = datetime.date.today().year
+        dashboard_data = {}
+
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("SELECT estatus, COUNT(*) as count FROM recomendaciones WHERE activo = TRUE GROUP BY estatus;")
+            dashboard_data["recomendaciones_stats"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("SELECT COUNT(*) AS total, COUNT(CASE WHEN estatus = 'Realizada' THEN 1 END) AS realizadas FROM sesiones WHERE año = %s AND activo = TRUE;", (current_year,))
+            sesiones_stats_raw = cur.fetchone()
+            total_programadas = sesiones_stats_raw['total'] if sesiones_stats_raw else 0
+            realizadas = sesiones_stats_raw['realizadas'] if sesiones_stats_raw else 0
+            cumplimiento_pct = (realizadas / total_programadas * 100) if total_programadas > 0 else 0
+            dashboard_data["sesiones_stats"] = {"total_programadas": total_programadas, "realizadas": realizadas, "cumplimiento_pct": round(cumplimiento_pct, 2)}
+
+            cur.execute("SELECT i.siglas, COUNT(r.id_recomendacion) AS pendientes_count FROM recomendaciones r JOIN instituciones i ON r.id_institucion = i.id_institucion WHERE r.estatus = 'Pendiente' AND r.activo = TRUE GROUP BY i.siglas ORDER BY pendientes_count DESC LIMIT 5;")
+            dashboard_data["top_instituciones_pendientes"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("SELECT COUNT(*) as vencidas_count FROM recomendaciones WHERE fecha_compromiso < CURRENT_DATE AND estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE;")
+            dashboard_data["vencidas_count"] = cur.fetchone()['vencidas_count']
+            
+            sql_avg_age = """
+                SELECT COALESCE(
+                    AVG(CURRENT_DATE - fecha_emision), 
+                    0
+                )::INTEGER AS avg_age
+                FROM recomendaciones 
+                WHERE estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE;
+            """
+            cur.execute(sql_avg_age)
+            dashboard_data["antiguedad_promedio"] = cur.fetchone()['avg_age']
+
+            cur.execute("SELECT prioridad, COUNT(*) AS count FROM recomendaciones WHERE estatus IN ('Pendiente', 'En Proceso') AND activo = TRUE GROUP BY prioridad;")
+            dashboard_data["prioridad_stats"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("SELECT tipo_recomendacion, COUNT(*) AS count FROM recomendaciones WHERE activo = TRUE GROUP BY tipo_recomendacion;")
+            dashboard_data["tipo_stats"] = [dict(row) for row in cur.fetchall()]
+        
+            cur.execute("""
+                SELECT ts.nombre_sesion as tipo_sesion, COUNT(s.id_sesion) as count 
+                FROM sesiones s
+                JOIN tipos_sesion ts ON s.id_tipo_sesion = ts.id_tipo_sesion
+                WHERE s.año = %s AND s.activo = TRUE GROUP BY ts.nombre_sesion;
+            """, (current_year,))
+            dashboard_data["sesiones_por_tipo"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("""
+                SELECT ti.nombre_informe as tipo_informe, COUNT(i.id_informe) as count 
+                FROM informes i
+                JOIN tipos_informe ti ON i.id_tipo_informe = ti.id_tipo_informe
+                WHERE i.activo = TRUE GROUP BY ti.nombre_informe;
+            """)
+            informes_por_tipo = [dict(row) for row in cur.fetchall()]
+            dashboard_data["informes_por_tipo"] = informes_por_tipo
+            dashboard_data["total_informes"] = sum(item['count'] for item in informes_por_tipo)
+
+            cur.execute("SELECT COUNT(*) AS emitidas, COUNT(CASE WHEN estatus IN ('Cerrada', 'Completada') THEN 1 END) AS atendidas FROM recomendaciones WHERE activo = TRUE;")
+            dashboard_data["recomendaciones_totales"] = dict(cur.fetchone())
+
+            cur.execute("""
+                SELECT ti.nombre_informe as tipo_informe, COUNT(rec.id_recomendacion) AS count 
+                FROM recomendaciones rec 
+                JOIN informes inf ON rec.id_informe = inf.id_informe
+                JOIN tipos_informe ti ON inf.id_tipo_informe = ti.id_tipo_informe
+                WHERE rec.activo = TRUE GROUP BY ti.nombre_informe;
+            """)
+            dashboard_data["rec_emitidas_por_tipo_informe"] = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("""
+                SELECT ti.nombre_informe as tipo_informe, COUNT(rec.id_recomendacion) AS count 
+                FROM recomendaciones rec 
+                JOIN informes inf ON rec.id_informe = inf.id_informe
+                JOIN tipos_informe ti ON inf.id_tipo_informe = ti.id_tipo_informe
+                WHERE rec.activo = TRUE AND rec.estatus IN ('Cerrada', 'Completada') 
+                GROUP BY ti.nombre_informe;
+            """)
+            dashboard_data["rec_atendidas_por_tipo_informe"] = [dict(row) for row in cur.fetchall()]
+
+        return jsonify(dashboard_data)
+
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"Error detallado en dashboard: {error_details}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+            
+# =============================================================
+# ENDPOINTS DE SESIONES (v2.0 REESTRUCTURADO)
+# =============================================================
+@app.route('/api/sesiones', methods=['GET'])
+def obtener_sesiones():
+    """
+    VERSIÓN FINAL: Usa una plantilla en memoria para garantizar la vista de 4 trimestres
+    y la fusiona con los datos reales de la BD. No crea registros en la BD.
+    """
+    año = request.args.get('año', type=int)
+    institucion_id = request.args.get('institucion_id', type=int)
+    organo_id = request.args.get('organo_id', type=int)
+
+    if not all([año, institucion_id, organo_id]):
+        return jsonify({"error": "Faltan parámetros (año, institucion_id, organo_id)."}), 400
+    
+    conn = get_db_connection()
+    try:
+        # 1. Crear la plantilla ideal en memoria.
+        periodos_map = {1: 'Primer Trimestre', 2: 'Segundo Trimestre', 3: 'Tercer Trimestre', 4: 'Cuarto Trimestre'}
+        plantilla_trimestral = {i: {
+            "id_sesion": f"programada_{i}", "año": año, "estatus": "Programada",
+            "nombre_oficial_sesion": None, "numero_ordinal": i, "periodo": periodos_map[i],
+            "fecha_realizada": None, "id_tipo_sesion": 1, "tipo_sesion": "Ordinaria"
+        } for i in range(1, 5)}
+
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            # 2. Consultar los datos reales.
+            sql_get_reales = """
+                SELECT s.id_sesion, s.año, s.estatus, s.nombre_oficial_sesion, s.numero_ordinal, 
+                       s.fecha_realizada, ts.id_tipo_sesion, ts.nombre_sesion AS tipo_sesion
+                FROM sesiones s JOIN tipos_sesion ts ON s.id_tipo_sesion = ts.id_tipo_sesion
+                WHERE s.año = %s AND s.id_institucion = %s AND s.id_tipo_organo = %s AND s.activo = TRUE;
+            """
+            cur.execute(sql_get_reales, (año, institucion_id, organo_id))
+            sesiones_reales_raw = cur.fetchall()
+
+            # 3. Separar y fusionar.
+            ordinarias_reales = sorted([dict(s) for s in sesiones_reales_raw if s['id_tipo_sesion'] == 1], key=lambda x: x.get('fecha_realizada') or date.max)
+            extraordinarias_reales = [dict(s) for s in sesiones_reales_raw if s['id_tipo_sesion'] == 2]
+
+            for index, sesion_real in enumerate(ordinarias_reales):
+                ordinal_a_reemplazar = index + 1
+                if ordinal_a_reemplazar in plantilla_trimestral:
+                    sesion_real['numero_ordinal'] = plantilla_trimestral[ordinal_a_reemplazar]['numero_ordinal']
+                    sesion_real['periodo'] = plantilla_trimestral[ordinal_a_reemplazar]['periodo']
+                    plantilla_trimestral[ordinal_a_reemplazar] = sesion_real
+            
+            # 4. Construir la respuesta final.
+            resultado_final = list(plantilla_trimestral.values())
+            resultado_final.extend(extraordinarias_reales)
+            return jsonify(resultado_final)
+
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"Error en obtener_sesiones: {error_details}")
+        return jsonify({"error": f"Error interno del servidor: {str(e)}"}), 500
+    finally:
+        if conn:
+            conn.close()
+            
+            
+@app.route('/api/sesiones/ordinaria', methods=['POST'])
+def crear_sesion_ordinaria():
+    """Crea una nueva sesión ordinaria realizada."""
+    data = request.form.to_dict()
+    # El campo 'id_sesion_programada' ya no es necesario para la consulta, solo para la lógica del frontend
+    required_fields = ['año', 'institucion_id', 'organo_id', 'numero_sesion_oficial', 'fecha_realizada']
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Faltan campos para crear sesión ordinaria"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # CORRECCIÓN: Se cambia UPDATE por INSERT, similar a 'extraordinaria' pero con id_tipo_sesion = 1
+            sql = """
+                INSERT INTO sesiones (
+                    año, id_institucion, id_tipo_organo, id_tipo_sesion,
+                    estatus, nombre_oficial_sesion, fecha_realizada, usuario_creacion
+                ) VALUES (%s, %s, %s, 1, 'Realizada', %s, %s, %s) RETURNING id_sesion;
+            """
+            cur.execute(sql, (
+                data['año'], data['institucion_id'], data['organo_id'],
+                data['numero_sesion_oficial'], data['fecha_realizada'], data.get('usuario_creacion', 'sistema')
+            ))
+            new_id = cur.fetchone()[0]
+            conn.commit()
+            # Se devuelve un código 201 (Created) y el nuevo ID real de la base de datos.
+            return jsonify({"message": "Sesión ordinaria creada.", "id_sesion": new_id}), 201
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en crear_sesion_ordinaria: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+            
+@app.route('/api/sesiones/extraordinaria', methods=['POST'])
+def crear_sesion_extraordinaria():
+    """Crea una nueva sesión extraordinaria realizada."""
+    data = request.form.to_dict()
+    required_fields = ['año', 'institucion_id', 'organo_id', 'numero_sesion_oficial', 'fecha_realizada']
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Faltan campos para crear sesión extraordinaria"}), 400
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+                INSERT INTO sesiones (
+                    año, id_institucion, id_tipo_organo, id_tipo_sesion,
+                    estatus, nombre_oficial_sesion, fecha_realizada, usuario_creacion
+                ) VALUES (%s, %s, %s, 2, 'Realizada', %s, %s, %s) RETURNING id_sesion;
+            """
+            cur.execute(sql, (
+                data['año'], data['institucion_id'], data['organo_id'],
+                data['numero_sesion_oficial'], data['fecha_realizada'], data.get('usuario_creacion', 'sistema')
+            ))
+            new_id = cur.fetchone()[0]
+            conn.commit()
+            return jsonify({"message": "Sesión extraordinaria creada.", "id_sesion": new_id}), 201
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en crear_sesion_extraordinaria: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/sesiones/<int:id_sesion>', methods=['PUT'])
+def actualizar_sesion(id_sesion):
+    """
+    Actualiza una sesión existente. Usado principalmente para marcar una sesión 'Programada' como 'Realizada'.
+    """
+    data = request.form.to_dict()
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Construcción dinámica de la consulta para actualizar solo los campos enviados
+            update_fields = []
+            params = []
+            
+            if 'nombre_oficial_sesion' in data:
+                update_fields.append("nombre_oficial_sesion = %s")
+                params.append(data['nombre_oficial_sesion'])
+            if 'fecha_realizada' in data:
+                update_fields.append("fecha_realizada = %s")
+                params.append(data['fecha_realizada'])
+                update_fields.append("estatus = 'Realizada'") # Si se registra una fecha, se marca como realizada
+            if 'estatus' in data:
+                update_fields.append("estatus = %s")
+                params.append(data['estatus'])
+
+            if not update_fields:
+                return jsonify({"error": "No hay campos para actualizar"}), 400
+
+            # Añadir el usuario de actualización a los parámetros
+            update_fields.append("usuario_actualizacion = %s")
+            params.append(data.get('usuario_actualizacion', 'sistema'))
+            update_fields.append("fecha_actualizacion = NOW()")
+
+            params.append(id_sesion)
+            
+            sql = f"UPDATE sesiones SET {', '.join(update_fields)} WHERE id_sesion = %s;"
+            
+            cur.execute(sql, params)
+            conn.commit()
+            
+            return jsonify({"message": "Sesión actualizada.", "id_sesion": id_sesion})
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en actualizar_sesion: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+            
+            
+# =============================================================
+# ENDPOINTS PARA FILTROS DINÁMICOS DE SESIONES
+# =============================================================
+
+@app.route('/api/sesiones/responsables_por_ano/<int:ano>', methods=['GET'])
+def obtener_responsables_por_ano(ano):
+    """
+    Obtiene la lista ÚNICA de responsables que tienen al menos una sesión
+    registrada en el año especificado. Ideal para poblar filtros en cascada.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = """
+                SELECT DISTINCT
+                    r.id_responsable,
+                    r.nombre as nombre_responsable  -- Aseguramos consistencia en el nombre del campo
+                FROM responsables r
+                JOIN instituciones i ON r.id_responsable = i.id_responsable
+                JOIN sesiones s ON i.id_institucion = s.id_institucion
+                WHERE s.año = %s AND r.activo = TRUE AND s.activo = TRUE
+                ORDER BY r.nombre;
+            """
+            cur.execute(sql, (ano,))
+            responsables = [dict(row) for row in cur.fetchall()]
+            # Devolvemos directamente la lista, como hacen las otras funciones de poblarSelect
+            return jsonify(responsables)
+    except Exception as e:
+        print(f"Error en obtener_responsables_por_ano: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# =============================================================
+# ENDPOINTS DE INFORMES Y RECOMENDACIONES (v2.0 REESTRUCTURADO)
+# =============================================================
+@app.route('/api/informes', methods=['GET', 'POST'])
+def manejar_informes():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if request.method == 'GET':
+                # --- INICIO DE MODIFICACIÓN: AÑADIR NUEVOS FILTROS ---
+                sql = """
+                    SELECT 
+                        i.id_informe, i.id_institucion, i.id_tipo_organo, i.id_tipo_informe,
+                        i.periodicidad, i.periodo_reportado, i.fecha_informe, i.descripcion, i.activo,
+                        i.recomendaciones_emitidas, i.recomendaciones_atendidas,
+                        UPPER(inst.nombre_institucion) as nombre_institucion, inst.siglas,
+                        tog.nombre as nombre_organo,
+                        ti.nombre_informe,
+                        resp.nombre as nombre_responsable
+                    FROM informes i
+                    JOIN instituciones inst ON i.id_institucion = inst.id_institucion
+                    JOIN tipos_organo_gobierno tog ON i.id_tipo_organo = tog.id_tipo_organo
+                    JOIN tipos_informe ti ON i.id_tipo_informe = ti.id_tipo_informe
+                    JOIN responsables resp ON inst.id_responsable = resp.id_responsable
+                    JOIN ramos r ON inst.id_ramo = r.id_ramo
+                    JOIN dgs d ON r.id_dg = d.id_dg
+                """
+                
+                filters = ["i.activo = TRUE"]
+                params = []
+                
+                if request.args.get('periodo_reportado'):
+                    filters.append("i.periodo_reportado = %s")
+                    params.append(request.args.get('periodo_reportado'))
+                if request.args.get('id_dg'):
+                    filters.append("d.id_dg = %s")
+                    params.append(request.args.get('id_dg', type=int))
+                if request.args.get('id_ramo'):
+                    filters.append("r.id_ramo = %s")
+                    params.append(request.args.get('id_ramo', type=int))
+                if request.args.get('responsable_id'):
+                    filters.append("resp.id_responsable = %s")
+                    params.append(request.args.get('responsable_id', type=int))
+                if request.args.get('institucion_id'):
+                    filters.append("i.id_institucion = %s")
+                    params.append(request.args.get('institucion_id', type=int))
+                if request.args.get('organo_id'):
+                    filters.append("i.id_tipo_organo = %s")
+                    params.append(request.args.get('organo_id', type=int))
+                # --- FIN DE MODIFICACIÓN ---
+
+                if len(filters) > 1:
+                    sql += " WHERE " + " AND ".join(filters)
+                
+                sql += " ORDER BY i.fecha_informe DESC;"
+                
+                cur.execute(sql, tuple(params))
+                informes = [dict(row) for row in cur.fetchall()]
+                return jsonify(informes)
+            
+            if request.method == 'POST':
+                data = request.form.to_dict()
+                
+                sql_insert = """
+                    INSERT INTO informes 
+                    (periodo_reportado, periodicidad, id_institucion, id_tipo_organo, id_tipo_informe, descripcion, fecha_informe, recomendaciones_emitidas, recomendaciones_atendidas, usuario_creacion)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_informe;
+                """
+                cur.execute(sql_insert, (
+                    data['periodo_reportado'], data.get('periodicidad', 'Anual'), data['id_institucion'], data['id_tipo_organo'], 
+                    data['id_tipo_informe'], data.get('descripcion'), data['fecha_informe'], 
+                    data.get('recomendaciones_emitidas', 0), data.get('recomendaciones_atendidas', 0),
+                    'usuario_sistema'
+                ))
+                new_id = cur.fetchone()[0]
+                conn.commit()
+                return jsonify({"message": "Informe creado.", "id_informe": new_id}), 201
+                
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en manejar_informes: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/informes/<int:informe_id>', methods=['GET', 'PUT', 'DELETE'])
+def manejar_informe_detalle(informe_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if request.method == 'GET':
+                cur.execute("""
+                    SELECT i.*, inst.nombre_institucion, tog.nombre as nombre_organo 
+                    FROM informes i 
+                    JOIN instituciones inst ON i.id_institucion = inst.id_institucion 
+                    JOIN tipos_organo_gobierno tog ON i.id_tipo_organo = tog.id_tipo_organo 
+                    WHERE i.id_informe = %s;
+                """, (informe_id,))
+                informe = dict(cur.fetchone())
+                return jsonify(informe)
+            
+            if request.method == 'PUT':
+                data = request.form.to_dict()
+                sql = """
+                    UPDATE informes SET 
+                    id_tipo_informe = %s, descripcion = %s, fecha_informe = %s, id_tipo_organo = %s, 
+                    periodo_reportado = %s, periodicidad = %s, recomendaciones_emitidas = %s, recomendaciones_atendidas = %s 
+                    WHERE id_informe = %s;
+                """
+                cur.execute(sql, (
+                    data['id_tipo_informe'], data.get('descripcion'), data['fecha_informe'], 
+                    data['id_tipo_organo'], data['periodo_reportado'], data['periodicidad'],
+                    data.get('recomendaciones_emitidas', 0), data.get('recomendaciones_atendidas', 0), 
+                    informe_id
+                ))
+                conn.commit()
+                return jsonify({"message": "Informe actualizado."})
+            
+            if request.method == 'DELETE':
+                cur.execute("UPDATE informes SET activo = FALSE WHERE id_informe = %s;", (informe_id,))
+                cur.execute("UPDATE recomendaciones SET activo = FALSE WHERE id_informe = %s;", (informe_id,))
+                conn.commit()
+                return jsonify({"message": "Informe y recomendaciones asociadas eliminados."})
+    except Exception as e:
+        conn.rollback()
+        print(f"Error en manejar_informe_detalle: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        conn.close()
+
+
+# --- INICIO DEL NUEVO CÓDIGO A AÑADIR ---
+@app.route('/api/recomendaciones', methods=['GET'])
+def obtener_recomendaciones():
+    """
+    Obtiene una lista de recomendaciones filtrada por varios parámetros.
+    Utilizado por la vista principal de "Recomendaciones".
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            # --- INICIO DE MODIFICACIÓN: AÑADIR NUEVOS FILTROS ---
+            sql = """
+                SELECT
+                    rec.id_recomendacion, rec.id_informe, rec.descripcion,
+                    rec.area_responsable_atencion, rec.fecha_emision, rec.fecha_compromiso,
+                    rec.estatus, rec.prioridad, rec.tipo_recomendacion,
+                    inst.siglas, inst.id_institucion,
+                    tog.nombre as nombre_organo, tog.id_tipo_organo,
+                    resp.id_responsable,
+                    (SELECT COUNT(*) FROM evidencias ev
+                     WHERE ev.parent_type = 'recomendacion' AND ev.parent_id = rec.id_recomendacion) as evidencias_count
+                FROM recomendaciones rec
+                JOIN instituciones inst ON rec.id_institucion = inst.id_institucion
+                JOIN tipos_organo_gobierno tog ON rec.id_tipo_organo = tog.id_tipo_organo
+                JOIN responsables resp ON inst.id_responsable = resp.id_responsable
+                JOIN ramos r ON inst.id_ramo = r.id_ramo
+                JOIN dgs d ON r.id_dg = d.id_dg
+            """
+            
+            filters = ["rec.activo = TRUE"]
+            params = []
+            
+            # Construcción dinámica de filtros
+            if request.args.get('año'):
+                filters.append("EXTRACT(YEAR FROM rec.fecha_emision) = %s")
+                params.append(request.args.get('año'))
+            if request.args.get('id_dg'):
+                filters.append("d.id_dg = %s")
+                params.append(request.args.get('id_dg', type=int))
+            if request.args.get('id_ramo'):
+                filters.append("r.id_ramo = %s")
+                params.append(request.args.get('id_ramo', type=int))
+            if request.args.get('responsable_id'):
+                filters.append("inst.id_responsable = %s")
+                params.append(request.args.get('responsable_id', type=int))
+            if request.args.get('institucion_id'):
+                filters.append("rec.id_institucion = %s")
+                params.append(request.args.get('institucion_id', type=int))
+            if request.args.get('organo_id') and request.args.get('organo_id') != '0':
+                filters.append("rec.id_tipo_organo = %s")
+                params.append(request.args.get('organo_id', type=int))
+            # --- FIN DE MODIFICACIÓN ---
+
+            if len(filters) > 1:
+                sql += " WHERE " + " AND ".join(filters)
+            
+            sql += " ORDER BY rec.fecha_emision DESC;"
+            
+            cur.execute(sql, tuple(params))
+            recomendaciones = [dict(row) for row in cur.fetchall()]
+            return jsonify(recomendaciones)
+
+    except Exception as e:
+        import traceback
+        print(f"Error en obtener_recomendaciones: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/reportes/informes', methods=['POST'])
+def generar_reporte_informes_v2():
+    filters = request.json
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            sql = """
+                SELECT
+                    i.id_informe,
+                    resp.nombre as nombre_responsable,
+                    UPPER(inst.nombre_institucion) as institucion,
+                    tog.nombre as nombre_organo,
+                    ti.nombre_informe,
+                    i.periodo_reportado,
+                    i.periodicidad,
+                    i.fecha_informe,
+                    i.descripcion,
+                    i.recomendaciones_emitidas,
+                    i.recomendaciones_atendidas
+                FROM informes i
+                JOIN instituciones inst ON i.id_institucion = inst.id_institucion
+                JOIN tipos_organo_gobierno tog ON i.id_tipo_organo = tog.id_tipo_organo
+                JOIN tipos_informe ti ON i.id_tipo_informe = ti.id_tipo_informe
+                JOIN responsables resp ON inst.id_responsable = resp.id_responsable
+            """
+            where_clauses = ["i.activo = TRUE"]
+            params = []
+
+            if filters.get('periodo_reportado'):
+                where_clauses.append("i.periodo_reportado = %s")
+                params.append(filters['periodo_reportado'])
+            if filters.get('responsable_id'):
+                where_clauses.append("inst.id_responsable = %s")
+                params.append(filters['responsable_id'])
+            if filters.get('institucion_id'):
+                where_clauses.append("inst.id_institucion = %s")
+                params.append(filters['institucion_id'])
+            if filters.get('organo_id'):
+                where_clauses.append("tog.id_tipo_organo = %s")
+                params.append(filters['organo_id'])
+            if filters.get('tipo_informe_id'):
+                where_clauses.append("i.id_tipo_informe = %s")
+                params.append(filters['tipo_informe_id'])
+
+            if len(where_clauses) > 1:
+                sql += " WHERE " + " AND ".join(where_clauses)
+            
+            sql += " ORDER BY i.fecha_informe DESC;"
+            cur.execute(sql, tuple(params))
+            report_data = [dict(row) for row in cur.fetchall()]
+            return jsonify(report_data)
+
+    except Exception as e:
+        print(f"Error en reporte de informes: {traceback.format_exc()}")
+        return jsonify({"error": "Error al generar el reporte"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# =============================================================
+# EJECUCIÓN DE LA APLICACIÓN
+# =============================================================
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5001, debug=True)
+2. index.html (Final)
+Contiene los nuevos selectores para DG y Ramo en las cuatro secciones, y la corrección del ID filtro-informe-periodo a filtro-informe-año.
+
+HTML
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión COCODI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
+    <style>
+        :root {
+            --color-gob-vino-oscuro: #611232; /* PANTONE 7421 C */
+            --color-gob-vino-claro: #9b2247;  /* PANTONE 7420 C */
+            --color-gob-verde: #1e5b4f;      /* PANTONE 626 C */
+            --color-gob-dorado: #a57f2c;     /* PANTONE 1255 C */
+            --color-gob-gris: #333333;
+            --color-gob-fondo: #f4f7f9;
+            --color-danger: #dc3545;
+        }
+
+        body {  
+            font-family: 'Montserrat', sans-serif;  
+            margin: 0;  
+            background-color: var(--color-gob-fondo);
+        }
+        
+        .main-header {
+            background-color: #fff;
+            padding: 1em 2em;
+            display: flex;
+            align-items: center;
+            border-bottom: 2px solid #ccc;
+        }
+        .main-header img {
+            height: 50px;
+            margin-right: 20px;
+        }
+        .main-header .header-titles {
+            display: flex;
+            flex-direction: column;
+        }
+        .main-header h1 {
+            font-size: 1.5em;
+            color: var(--color-gob-gris);
+            margin: 0;
+            line-height: 1.2;
+        }
+        .main-header h2 {
+            font-size: 1.1em;
+            color: var(--color-gob-gris);
+            margin: 0;
+            font-weight: 400;
+        }
+
+        .main-nav {  
+            background-color: var(--color-gob-vino-oscuro);  
+            padding: 0.5em;  
+            text-align: center;  
+        }
+        .main-nav a {  
+            color: white;  
+            text-decoration: none;  
+            padding: 0.8em 1.2em;  
+            font-weight: bold;  
+            display: inline-block;
+        }
+        .main-nav a.active, .main-nav a:hover {  
+            background-color: var(--color-gob-vino-claro);  
+        }
+
+        .container { background-color: #fff; padding: 2em; margin: 2em; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
+        .hidden { display: none; }
+        .container h1 { font-size: 1.8em; }
+        h2, h3 { color: var(--color-gob-gris); }
+
+        button { padding: 10px 15px; font-size: 16px; cursor: pointer; border-radius: 5px; border: none; color: white; font-weight: bold; }
+        .btn-primary { background-color: var(--color-gob-vino-oscuro); }
+        .btn-secondary { background-color: #6c757d; }
+        .btn-warning { background-color: var(--color-gob-dorado); }
+        .btn-danger { background-color: var(--color-danger); }
+        .btn-info { background-color: var(--color-gob-verde); }
+        
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; font-weight: bold; }
+        
+        #informes-table td, 
+        #recomendaciones-informe-table td, 
+        #recomendaciones-independientes-table td, 
+        #report-table td {
+            font-size: 0.85em;
+            padding: 8px 10px;
+        }
+
+        .truncate-text {
+            max-width: 250px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+        }
+        
+        /* --- INICIO DE NUEVOS ESTILOS PARA ICONOS --- */
+        .actions-cell {
+            white-space: nowrap;
+        }
+        
+        .btn-icon {
+            background-color: transparent;
+            border: none;
+            padding: 5px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-icon svg {
+            width: 18px;
+            height: 18px;
+            transition: transform 0.2s ease-in-out;
+        }
+        .btn-icon:hover {
+            background-color: #f0f0f0;
+        }
+        .btn-icon:hover svg {
+            transform: scale(1.1);
+        }
+
+        .icon-view { fill: var(--color-gob-verde); }
+        .icon-edit { fill: var(--color-gob-dorado); }
+        .icon-delete { fill: var(--color-danger); }
+        /* --- FIN DE NUEVOS ESTILOS PARA ICONOS --- */
+
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+        .modal-content { 
+            background-color: #fefefe; 
+            padding: 20px; 
+            width: 80%; 
+            max-width: 600px; 
+            border-radius: 8px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 20px; }
+        .modal-header h2 { margin: 0; }
+        .modal-form div { margin-bottom: 15px; }
+        .modal-form label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .modal-form input, .modal-form textarea, .modal-form select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        .close-btn { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
+        
+        .detalle-info p { margin: 8px 0; font-size: 16px; line-height: 1.6; }
+        .detalle-info strong { color: var(--color-gob-gris); }
+        .detalle-info ul { padding-left: 20px; }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px solid #ccc;
+        }
+
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #dee2e6; padding-bottom: 10px; margin-bottom: 20px; }
+        .filtros { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; padding: 1.5em; background-color: #f8f9fa; border-radius: 5px; align-items: flex-end; }
+        .filtros > div { flex: 1; min-width: 200px; }
+        .filtros label { margin-bottom: 5px; font-weight: bold; color: #555; display: block; }
+        .filtros select, .filtros input { padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; width: 100%; box-sizing: border-box; }
+        .calendario-header { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5em; border-bottom: 1px solid #ccc; padding-bottom: 0.5em;}
+        #btn-agendar-extraordinaria { background-color: #6c757d; }
+        #calendario-container { margin-top: 20px; min-height: 100px;}
+        .sesion-card { border: 1px solid #ddd; border-radius: 5px; padding: 1em; margin-bottom: 1em; background-color: #fff; display: flex; justify-content: space-between; align-items: center; }
+        
+        .sesion-card.realizada {
+            cursor: pointer;
+            transition: box-shadow 0.2s ease-in-out;
+        }
+        .sesion-card.realizada:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .sesion-card-info p { margin: 0.5em 0; }
+        .sesion-card .estatus { font-weight: bold; padding: 0.2em 0.5em; border-radius: 4px; color: white; }
+        
+        .estatus-Programada { background-color: var(--color-gob-dorado); }
+        .estatus-Realizada { background-color: var(--color-gob-verde); }
+        
+        #notification-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .notification {
+            padding: 15px 20px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            opacity: 0;
+            transform: translateX(100%);
+            animation: slideIn 0.5s forwards;
+        }
+        .notification.success { background-color: var(--color-gob-verde); }
+        .notification.error { background-color: var(--color-danger); }
+        @keyframes slideIn {
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        @keyframes fadeOut {
+            to {
+                opacity: 0;
+            }
+        }
+
+        .file-list-container {
+            margin-top: 10px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            min-height: 40px;
+            background-color: #f8f9fa;
+        }
+        .file-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px;
+            background-color: #fff;
+            border: 1px solid #eee;
+            border-radius: 3px;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        .remove-file-btn {
+            cursor: pointer;
+            color: var(--color-danger);
+            font-weight: bold;
+            border: none;
+            background: none;
+            font-size: 1.2em;
+            padding: 0 5px;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5em;
+            margin-top: 2em;
+        }
+        .dashboard-widget {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1.5em;
+        }
+        .widget-large {
+            grid-column: span 2;
+        }
+        .chart-container {
+            position: relative;
+            height: 250px; /* Altura ajustada para los gráficos */
+        }
+        .kpi-container {
+            text-align: center;
+            font-size: 1em;
+        }
+        .kpi-container .kpi-number {
+            font-size: 2.2em;
+            font-weight: bold;
+            color: var(--color-gob-vino-oscuro);
+            margin: 0.2em 0;
+        }
+        .kpi-container .kpi-alert {
+            font-size: 2.2em;
+            font-weight: bold;
+            color: var(--color-danger);
+            margin: 0.2em 0;
+        }
+        .kpi-container p {
+            margin: 0.3em 0;
+        }
+
+    </style>
+</head>
+<body>
+    <header class="main-header">
+        <img src="assets/logo.jpg" alt="Logo Secretaría Anticorrupción y Buen Gobierno">
+        <div class="header-titles">
+            <h1>Secretaría Anticorrupción y Buen Gobierno</h1>
+            <h2>Sistema de Gestión de Sesiones, Informes y Recomendaciones</h2>
+        </div>
+    </header>
+
+    <nav class="main-nav">
+        <a href="#" data-section="section-sesiones" class="nav-link active">Sesiones</a>
+        <a href="#" data-section="section-reportes" class="nav-link">Informes</a>
+        <a href="#" data-section="section-recomendaciones-main" class="nav-link">Recomendaciones</a>
+        <a href="#" data-section="section-directorio" class="nav-link">Directorio</a>
+        <a href="#" data-section="section-dashboard" class="nav-link">Dashboard</a>
+        <a href="#" data-section="section-reporteria" class="nav-link">Reportería</a>
+		<a href="#" data-section="section-carga-masiva" class="nav-link">Carga Masiva</a>
+    </nav>
+
+    <div id="notification-container"></div>
+
+    <section id="section-sesiones" class="app-section">
+        <div class="container">
+            <div class="header">
+                <h1>Seguimiento de Sesiones</h1>
+            </div>
+            <div class="filtros">
+                <div><label for="filtro-año">Año:</label><select id="filtro-año"></select></div>
+                <div><label for="filtro-dg">DG:</label><select id="filtro-dg"><option value="">Seleccione...</option></select></div>
+                <div><label for="filtro-ramo">Ramo:</label><select id="filtro-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                <div><label for="filtro-responsable">Responsable:</label><select id="filtro-responsable" required disabled><option value="">Seleccione Ramo...</option></select></div>
+                <div><label for="filtro-institucion">Institución:</label><select id="filtro-institucion" required disabled><option value="">Seleccione Responsable...</option></select></div>
+                <div><label for="filtro-organo">Órgano Colegiado:</label><select id="filtro-organo" required disabled><option value="">Seleccione Institución...</option></select></div>
+            </div>
+            <div class="calendario-header">
+                <h2>Calendario de Sesiones</h2>
+                <button id="btn-agendar-extraordinaria" disabled>Registrar Extraordinaria</button>
+            </div>
+            <div id="calendario-container"><p>Por favor, complete los filtros.</p></div>
+        </div>
+    </section>
+    
+    <section id="section-reportes" class="app-section hidden">
+        <div id="reportes-main-view">
+            <div class="container">
+                <div class="header">
+                    <h1>Gestión de Informes</h1>
+                    <button id="btn-nuevo-informe" class="btn-primary">Crear Nuevo Informe</button>
+                </div>
+                <div class="filtros">
+                    <div><label for="filtro-informe-año">Año:</label><select id="filtro-informe-año"></select></div>
+                    <div><label for="filtro-informe-dg">DG:</label><select id="filtro-informe-dg"><option value="">Seleccione...</option></select></div>
+                    <div><label for="filtro-informe-ramo">Ramo:</label><select id="filtro-informe-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                    <div><label for="filtro-informe-responsable">Responsable:</label><select id="filtro-informe-responsable" disabled><option value="">Seleccione Ramo...</option></select></div>
+                    <div><label for="filtro-informe-institucion">Institución:</label><select id="filtro-informe-institucion" disabled><option value="">Seleccione Responsable...</option></select></div>
+                    <div><label for="filtro-informe-organo">Órgano Colegiado:</label><select id="filtro-informe-organo" disabled><option value="">Seleccione Institución...</option></select></div>
+                </div>
+                <table id="informes-table">
+                    <thead>
+                        <tr>
+                            <th>Institución</th>
+                            <th>Órgano Colegiado</th>
+                            <th>Descripción</th>
+                            <th>Tipo de Informe</th>
+                            <th>Año </th>
+                            <th>Fecha Emisión</th>
+                            <th>Responsable</th>
+                            <th>Rec. Emitidas</th>
+                            <th>Rec. Atendidas</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="informes-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div id="reportes-detail-view" class="hidden">
+            <div class="container">
+                <button id="btn-volver-a-informes" class="btn-secondary">&larr; Volver a la lista</button>
+                <div id="informe-detalle-header"></div>
+                <h3>Documentos de Soporte</h3>
+                <ul id="informe-evidencias-list"></ul>
+                <div class="header">
+                    <h3>Recomendaciones del Informe</h3>
+                    <button id="btn-nueva-recomendacion-informe" class="btn-primary">Añadir Recomendación</button>
+                </div>
+                <table id="recomendaciones-informe-table">
+                    <thead><tr><th>Descripción</th><th>Área</th><th>Órgano Colegiado</th><th>Fecha Emisión</th><th>Fecha Compromiso</th><th>Estatus</th><th>Prioridad</th><th>Evidencias</th><th>Acciones</th></tr></thead>
+                    <tbody id="recomendaciones-informe-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section id="section-recomendaciones-main" class="app-section hidden">
+        <div class="container">
+            <div class="header">
+                <h1>Gestión de Recomendaciones</h1>
+                <button id="btn-nueva-recomendacion-independiente" class="btn-primary">Crear Recomendación</button>
+            </div>
+            <div class="filtros">
+                <div><label for="filtro-rec-año">Año:</label><select id="filtro-rec-año"></select></div>
+                <div><label for="filtro-rec-dg">DG:</label><select id="filtro-rec-dg"><option value="">Seleccione...</option></select></div>
+                <div><label for="filtro-rec-ramo">Ramo:</label><select id="filtro-rec-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                <div><label for="filtro-rec-responsable">Responsable:</label><select id="filtro-rec-responsable" disabled><option value="">Seleccione Ramo...</option></select></div>
+                <div><label for="filtro-rec-institucion">Institución:</label><select id="filtro-rec-institucion" disabled><option value="">Seleccione Responsable...</option></select></div>
+                <div><label for="filtro-rec-organo">Órgano Colegiado:</label><select id="filtro-rec-organo" disabled><option value="">Seleccione Institución...</option></select></div>
+            </div>
+            <table id="recomendaciones-independientes-table">
+                <thead><tr><th>Institución</th><th>Órgano Colegiado</th><th>Descripción</th><th>Área</th><th>Fecha Emisión</th><th>Fecha Compromiso</th><th>Estatus</th><th>Prioridad</th><th>Informe Asociado</th><th>Evidencias</th><th>Acciones</th></tr></thead>
+                <tbody id="recomendaciones-independientes-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section id="section-directorio" class="app-section hidden">
+        <div class="container">
+            <div class="header">
+                <h1>Directorio de Contactos</h1>
+                <button id="btn-nuevo-contacto" class="btn-primary">Añadir Contacto</button>
+            </div>
+            <div class="filtros">
+                <div><label for="filtro-dir-dg">DG:</label><select id="filtro-dir-dg"><option value="">Seleccione...</option></select></div>
+                <div><label for="filtro-dir-ramo">Ramo:</label><select id="filtro-dir-ramo" disabled><option value="">Seleccione DG...</option></select></div>
+                <div><label for="filtro-dir-responsable">Responsable:</label><select id="filtro-dir-responsable" disabled><option value="">Seleccione Ramo...</option></select></div>
+                <div><label for="filtro-dir-institucion">Institución:</label><select id="filtro-dir-institucion" disabled><option value="">Seleccione Responsable...</option></select></div>
+                <div><label for="filtro-dir-organo">Órgano Colegiado:</label><select id="filtro-dir-organo" disabled><option value="">Seleccione Institución...</option></select></div>
+            </div>
+            <table id="directorio-table">
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Teléfono</th>
+                        <th>Ext.</th>
+                        <th>Email</th>
+                        <th>Móvil (WhatsApp)</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="directorio-tbody">
+                    <tr><td colspan="6">Por favor, complete los filtros para ver los contactos.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section id="section-dashboard" class="app-section hidden">
+        <div class="container">
+            <h1>Dashboard de Cumplimiento</h1>
+            <div class="dashboard-grid">
+                
+                <div class="dashboard-widget">
+                    <h2>Sesiones del Año Actual</h2>
+                    <div id="dashboard-kpi-sesiones" class="kpi-container"><p>Cargando...</p></div>
+                </div>
+                <div class="dashboard-widget">
+                    <h2>Total Informes Emitidos</h2>
+                    <div id="dashboard-kpi-total-informes" class="kpi-container"><p>Cargando...</p></div>
+                </div>
+                <div class="dashboard-widget">
+                    <h2>Total Recomendaciones</h2>
+                    <div id="dashboard-kpi-total-recomendaciones" class="kpi-container"><p>Cargando...</p></div>
+                </div>
+                <div class="dashboard-widget">
+                    <h2>Alertas de Incumplimiento</h2>
+                    <div id="dashboard-kpi-vencidas" class="kpi-container"><p>Cargando...</p></div>
+                </div>
+
+                <div class="dashboard-widget">
+                    <h2>Sesiones por tipo del Año Actual</h2>
+                    <div class="chart-container">
+                        <canvas id="sesiones-tipo-chart"></canvas>
+                    </div>
+                </div>
+                <div class="dashboard-widget">
+                    <h2>Informes por Tipo</h2>
+                    <div class="chart-container">
+                        <canvas id="informes-tipo-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="dashboard-widget">
+                    <h2>Top 5 Instituciones con Pendientes</h2>
+                    <table id="dashboard-top-instituciones-table">
+                        <thead><tr><th>Institución</th><th>Pendientes</th></tr></thead>
+                        <tbody id="dashboard-top-instituciones-tbody"><tr><td colspan="2">Cargando...</td></tr></tbody>
+                    </table>
+                </div>
+                 <div class="dashboard-widget">
+                    <h2>Tiempo Promedio de Atención</h2>
+                    <div id="dashboard-kpi-antiguedad" class="kpi-container"><p>Cargando...</p></div>
+                </div>
+
+                <div class="dashboard-widget widget-large">
+                    <h2>Estado General de Recomendaciones</h2>
+                    <div class="chart-container"><canvas id="recomendaciones-chart"></canvas></div>
+                </div>
+                <div class="dashboard-widget widget-large">
+                    <h2>Pendientes por Prioridad</h2>
+                    <div class="chart-container"><canvas id="prioridad-chart"></canvas></div>
+                </div>
+                
+                <div class="dashboard-widget widget-large">
+                    <h2>Recomendaciones Emitidas por Tipo de Informe</h2>
+                     <div class="chart-container">
+                        <canvas id="rec-emitidas-tipo-informe-chart"></canvas>
+                    </div>
+                </div>
+                <div class="dashboard-widget widget-large">
+                    <h2>Recomendaciones Atendidas por Tipo de Informe</h2>
+                    <div class="chart-container">
+                        <canvas id="rec-atendidas-tipo-informe-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="section-reporteria" class="app-section hidden">
+        <div class="container">
+            <div class="header">
+                <h1>Generador de Reportes</h1>
+            </div>
+
+            <div class="filtros">
+                <div style="flex-basis: 100%;"><label for="report-type-select">1. Seleccione el tipo de reporte:</label>
+                    <select id="report-type-select">
+                        <option value="">Seleccione...</option>
+                        <option value="recomendaciones">Reporte Detallado de Recomendaciones</option>
+                        <option value="sesiones">Reporte de Sesiones</option>
+                        <option value="informes">Reporte de Informes</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="filters-recomendaciones" class="report-filters hidden">
+                <h3>2. Aplique los filtros que desee:</h3>
+                <div class="filtros">
+                    <div><label>Fecha de Emisión (Desde):</label><input type="date" id="report-rec-date-from"></div>
+                    <div><label>Fecha de Emisión (Hasta):</label><input type="date" id="report-rec-date-to"></div>
+                    <div><label>Responsable:</label><select id="report-rec-responsable"></select></div>
+                    <div><label>Institución:</label><select id="report-rec-institucion"></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="report-rec-organo"></select></div>
+                    <div><label>Estatus:</label><select id="report-rec-estatus"></select></div>
+                    <div><label>Prioridad:</label><select id="report-rec-prioridad"></select></div>
+                    <div><label>Tipo:</label><select id="report-rec-tipo"></select></div>
+                    <div style="align-self: center;"><input type="checkbox" id="report-rec-vencidas" style="width: auto; margin-right: 10px;"> <label for="report-rec-vencidas">Mostrar sólo vencidas</label></div>
+                </div>
+            </div>
+
+            <div id="filters-sesiones" class="report-filters hidden">
+                <h3>2. Aplique los filtros que desee:</h3>
+                <div class="filtros">
+                    <div><label>Fecha Realizada (Desde):</label><input type="date" id="report-ses-date-from"></div>
+                    <div><label>Fecha Realizada (Hasta):</label><input type="date" id="report-ses-date-to"></div>
+                    <div><label>Año de la Sesión:</label><select id="report-ses-año"></select></div>
+                    <div><label>Responsable:</label><select id="report-ses-responsable"></select></div>
+                    <div><label>Institución:</label><select id="report-ses-institucion"></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="report-ses-organo"></select></div>
+                    <div><label>Tipo de Sesión:</label><select id="report-ses-tipo"></select></div>
+                    <div><label>Estatus:</label><select id="report-ses-estatus"></select></div>
+                </div>
+            </div>
+
+            <div id="filters-informes" class="report-filters hidden">
+                <h3>2. Aplique los filtros que desee:</h3>
+                <div class="filtros">
+                    <div>
+                        <label>Periodo (Año):</label>
+                        <select id="report-inf-periodo"></select>
+                    </div>
+                    <div>
+                        <label>Responsable:</label>
+                        <select id="report-inf-responsable"></select>
+                    </div>
+                    <div>
+                        <label>Institución:</label>
+                        <select id="report-inf-institucion"></select>
+                    </div>
+                    <div>
+                        <label>Órgano Colegiado:</label>
+                        <select id="report-inf-organo"></select>
+                    </div>
+                    <div>
+                        <label>Tipo de Informe:</label>
+                        <select id="report-inf-tipo"></select>
+                    </div>
+                </div>
+            </div>
+            <div class="header" style="margin-top: 2em;">
+                <h2>3. Genere y Exporte su Reporte</h2>
+                <div>
+                    <button id="generate-report-btn" class="btn-primary" disabled>Generar Reporte en Pantalla</button>
+                    <button id="export-excel-btn" class="btn-info" disabled>Exportar a Excel</button>
+                </div>
+            </div>
+
+            <div id="report-preview-area">
+                <p>Aún no se ha generado ningún reporte.</p>
+                <table id="report-table" class="hidden">
+                    <thead id="report-thead"></thead>
+                    <tbody id="report-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+	
+	
+	</section>
+
+    <section id="section-carga-masiva" class="app-section hidden">
+        <div class="container">
+            <div class="header">
+                <h1>Carga Masiva de Datos Históricos</h1>
+            </div>
+            <p>Este módulo permite cargar datos históricos de sesiones (CSV) e informes (Excel) para poblar la base de datos inicial, aplicando las reglas de negocio definidas en el checkpoint.</p>
+            
+            <form id="bulk-upload-form" style="margin-top: 2em;">
+                <div class="filtros" style="display: block;">
+                    <div>
+                        <label style="font-size: 1.2em;">1. Seleccione el tipo de datos a cargar:</label>
+                        <div style="padding: 10px 0;">
+                            <input type="radio" id="upload-type-sesiones" name="type" value="sesiones" checked style="margin-right: 5px;">
+                            <label for="upload-type-sesiones" style="margin-right: 20px;">Sesiones Históricas</label>
+                            
+                            <input type="radio" id="upload-type-informes" name="type" value="informes" style="margin-right: 5px;">
+                            <label for="upload-type-informes">Informes Históricos</label>
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px;">
+                        <label for="bulk-upload-file-input" style="font-size: 1.2em;">2. Seleccione el archivo:</label>
+                        <input type="file" id="bulk-upload-file-input" name="file" required 
+                               accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+                               style="width: 100%; margin-top: 10px; padding: 10px; font-size: 1em;">
+                    </div>
+                </div>
+                <div style="text-align: right; margin-top: 2em;">
+                    <button type="submit" id="bulk-upload-submit-btn" class="btn-primary" disabled>Procesar y Cargar Archivo</button>
+                </div>
+            </form>
+            <div id="bulk-upload-result-area" class="hidden" style="margin-top: 2em; padding: 1.5em; border-radius: 5px;">
+                <h3>Resultados de la Carga</h3>
+                <div id="bulk-upload-status"></div>
+            </div>
+        </div>
+    </section>
+    
+    <div id="ejecucion-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Registrar Ejecución</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <form id="ejecucion-form" class="modal-form">
+                <input type="hidden" id="id_calendario_hidden" name="id_calendario_hidden">
+                <input type="hidden" id="id_ejecucion_hidden" name="id_ejecucion_hidden">
+                <div><label>Número de Oficio:</label><input type="text" name="numero_sesion_oficial" required></div>
+                <div><label>Fecha Real de Ejecución:</label><input type="date" name="fecha_real" required></div>
+                <div>
+                    <label>Documentos (Acta, etc.):</label>
+                    <input type="file" name="files" id="sesion-files-input" multiple>
+                    <div id="sesion-files-list" class="file-list-container"></div>
+                </div>
+                <button type="submit" class="btn-primary" disabled>Guardar</button>
+            </form>
+        </div>
+    </div>
+    
+    <div id="sesion-detalle-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="sesion-detalle-title">Detalles de la Sesión</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <div id="sesion-detalle-body" class="detalle-info"></div>
+            <div class="modal-footer" id="sesion-detalle-footer"></div>
+        </div>
+    </div>
+
+    <div id="informe-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="informe-modal-title">Nuevo Informe</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <form id="informe-form" class="modal-form">
+                <input type="hidden" id="id_informe_hidden_form" name="id_informe">
+                <div><label>Periodo:</label><select id="periodo-select" name="periodo" required></select></div>
+                <div><label>Responsable:</label><select id="responsable-select-informe" name="id_responsable" required></select></div>
+                <div><label>Institución:</label><select id="institucion-select-informe" name="id_institucion" required disabled></select></div>
+                <div><label>Órgano Colegiado:</label><select id="organo-select-informe" name="id_organo_colegiado" required disabled></select></div>
+                <div><label>Tipo de Informe:</label><select name="tipo_informe" required><option value="">Seleccione...</option><option>Informe de Autoevaluación</option><option>Informe de Estados Financieros</option><option>RAAD</option></select></div>
+                <div><label for="informe-descripcion">Descripción (Opcional):</label><textarea id="informe-descripcion" name="descripcion" rows="3"></textarea></div>
+                <div><label>Fecha de Emisión:</label><input type="date" name="fecha_informe" required></div>
+                <div>
+                    <label>Documentos de Soporte:</label>
+                    <input type="file" name="files" id="informe-files-input" multiple>
+                    <div id="informe-files-list" class="file-list-container"></div>
+                </div>
+                <button type="submit" class="btn-primary" disabled>Guardar</button>
+            </form>
+        </div>
+    </div>
+    <div id="recomendacion-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="recomendacion-modal-title">Nueva Recomendación</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <form id="recomendacion-form" class="modal-form">
+                <input type="hidden" id="id_recomendacion_hidden" name="id_recomendacion">
+                <input type="hidden" id="id_informe_hidden_rec" name="id_informe">
+                
+                <div id="rec-independent-fields">
+                    <div><label>Responsable:</label><select id="rec-responsable-select" name="id_responsable" required></select></div>
+                    <div><label>Institución:</label><select id="rec-institucion-select" name="id_institucion" required disabled></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="rec-organo-select" name="id_organo_colegiado" required disabled></select></div>
+                </div>
+                
+                <div><label>Descripción:</label><textarea name="descripcion" required rows="3"></textarea></div>
+                <div><label>Área Responsable:</label><input type="text" name="area_responsable_atencion" required></div>
+                <div><label>Fecha de Emisión:</label><input type="date" name="fecha_emision" required></div>
+                <div><label>Fecha Compromiso:</label><input type="date" name="fecha_compromiso"></div>
+                <div><label>Estatus:</label><select name="estatus"><option>Pendiente</option><option>En Proceso</option><option>Completada</option><option>Cerrada</option><option>Cancelada</option></select></div>
+                <div><label>Prioridad:</label><select name="prioridad"><option>Media</option><option>Alta</option><option>Baja</option></select></div>
+                <div><label>Tipo:</label><select name="tipo_recomendacion"><option>Correctiva</option><option>Preventiva</option><option>De Mejora Continua</option></select></div>
+                <hr>
+                <h3>Evidencias</h3>
+                <ul id="recomendacion-evidencia-list"><li>No hay evidencias.</li></ul>
+                <div>
+                    <label>Cargar Nuevas Evidencias:</label>
+                    <input type="file" name="files" id="recomendacion-files-input" multiple>
+                    <div id="recomendacion-files-list" class="file-list-container"></div>
+                </div>
+                <button type="submit" class="btn-primary" disabled>Guardar</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="directorio-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="directorio-modal-title">Nuevo Contacto</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <form id="directorio-form" class="modal-form">
+                <input type="hidden" id="id_contacto_hidden" name="id_contacto">
+                
+                <div id="dir-creation-fields">
+                    <div><label>Responsable:</label><select id="dir-responsable-select" name="id_responsable" required></select></div>
+                    <div><label>Institución:</label><select id="dir-institucion-select" name="id_institucion" required disabled></select></div>
+                    <div><label>Órgano Colegiado:</label><select id="dir-organo-select" name="id_organo_colegiado" required disabled></select></div>
+                </div>
+
+                <div><label>Nombre Completo:</label><input type="text" name="nombre_contacto" required></div>
+                <div><label>Teléfono:</label><input type="text" name="telefono"></div>
+                <div><label>Extensión:</label><input type="text" name="extension"></div>
+                <div><label>Email:</label><input type="email" name="email"></div>
+                <div><label>Móvil (WhatsApp):</label><input type="text" name="movil"></div>
+                <div><label>Dirección:</label><textarea name="direccion" rows="2"></textarea></div>
+                <button type="submit" class="btn-primary" disabled>Guardar</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="recomendacion-detalle-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="recomendacion-detalle-title">Detalle de la Recomendación</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <div id="recomendacion-detalle-body" class="detalle-info"></div>
+            <div class="modal-footer" id="recomendacion-detalle-footer"></div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="confirm-title">Confirmar Acción</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <p id="confirm-body" style="font-size: 1.1em; margin: 20px 0;">¿Estás seguro de que deseas realizar esta acción?</p>
+            <div class="modal-footer">
+                <button id="confirm-cancel-btn" class="btn-secondary">Cancelar</button>
+                <button id="confirm-ok-btn" class="btn-danger">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=1.4"></script> </body>
+</html>
+3. app.js (Final)
+Contiene el nuevo gestor de filtros setupCascadingFilters, las funciones de visibilidad movidas a la sección global, y los módulos refactorizados para usar la nueva lógica centralizada.
+
+JavaScript
+
+document.addEventListener('DOMContentLoaded', () => {
+    // --- NAVEGACIÓN ---
+    const navLinks = document.querySelectorAll('.nav-link');
+    const sections = document.querySelectorAll('.app-section');
+    navLinks.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const sectionId = link.dataset.section;
+            sections.forEach(section => section.classList.toggle('hidden', section.id !== sectionId));
+            navLinks.forEach(navLink => navLink.classList.remove('active'));
+            link.classList.add('active');
+            
+            // Lógica de reseteo/carga ahora manejada por los 'init' y 'setupCascadingFilters'
+            if (sectionId === 'section-reportes') {
+                showReportesMainView();
+            }
+            if (sectionId === 'section-dashboard') {
+                cargarDatosDashboard();
+            }
+        });
+    });
+
+    // --- INICIALIZACIÓN DE MÓDULOS ---
+    initAllModals();
+    initConfirmModal();
+    initAllFormValidations();
+    initFileInputManagers();  
+    initSesionesModule();
+    initReportesModule();
+    initRecomendacionesModule();
+    initDirectorioModule(); 
+    initDashboardModule();
+    initReporteriaModule();
+    initCargaMasivaModule();
+});
+
+// =============================================================
+// =================== HELPERS GLOBALES ========================
+// =============================================================
+function showNotification(message, type = 'success') {
+    const container = document.getElementById('notification-container');
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    container.appendChild(notification);
+    setTimeout(() => {
+        notification.style.animation = 'fadeOut 0.5s forwards';
+        setTimeout(() => notification.remove(), 500);
+    }, 4500);
+}
+
+function initAllModals() {
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+        const closeBtn = modal.querySelector('.close-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+        }
+    });
+}
+
+let confirmCallback = null;
+function showConfirmModal(title, message, onConfirm) {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-body').textContent = message;
+    document.getElementById('confirm-modal').style.display = 'flex';
+    confirmCallback = onConfirm;
+}
+
+function initConfirmModal() {
+    const confirmOkBtn = document.getElementById('confirm-ok-btn');
+    const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+    const confirmModal = document.getElementById('confirm-modal');
+
+    const closeModal = () => {
+        if (confirmModal) {
+            confirmModal.style.display = 'none';
+        }
+        confirmCallback = null;
+    };
+
+    if (confirmOkBtn) {
+        confirmOkBtn.addEventListener('click', () => {
+            if (typeof confirmCallback === 'function') {
+                confirmCallback();
+            }
+            closeModal();
+        });
+    }
+
+    if (confirmCancelBtn) {
+        confirmCancelBtn.addEventListener('click', closeModal);
+    }
+}
+
+
+const formValidators = {};
+function initAllFormValidations() {
+    const forms = document.querySelectorAll('.modal-form');
+    forms.forEach(form => {
+        const submitButton = form.querySelector('button[type="submit"]');
+        
+        const validate = () => {
+            const requiredInputs = Array.from(form.querySelectorAll('[required]'));
+            const isFormValid = requiredInputs.every(input => {
+                if (input.closest('.hidden')) {
+                    return true;
+                }
+                if (input.type === 'file' && input.required) {
+                    return true; 
+                }
+                return input.value.trim() !== '';
+            });
+            if (submitButton) {
+                submitButton.disabled = !isFormValid;
+            }
+        };
+
+        form.addEventListener('input', validate);
+        form.addEventListener('change', validate);
+
+        formValidators[form.id] = { validate };
+    });
+}
+
+
+async function fetchAPI(url, options = {}) {
+    const finalUrl = url.startsWith('/') ? url : `/api/${url.replace(/^api\//, '')}`;
+
+    if (!(options.body instanceof FormData)) {
+        options.headers = { 'Content-Type': 'application/json', ...options.headers };
+        if (options.body) {
+            options.body = JSON.stringify(options.body);
+        }
+    }
+    
+    const response = await fetch(finalUrl, options);
+    
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: `Error HTTP: ${response.status}` }));
+        // ### LÍNEA CORREGIDA ###
+        throw new Error(errorData.message || errorData.error || `Error HTTP: ${response.status}`);
+    }
+    
+    return response.status !== 204 ? response.json() : null;
+}
+
+
+async function poblarSelectConAPI(url, selectId, valueField, textField, placeholder, addGeneralOption = false) {
+    try {
+        const data = await fetchAPI(url);
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        
+        const currentValue = select.value; // Guardar valor actual
+        select.innerHTML = `<option value="">${placeholder}</option>`;
+        
+        if (addGeneralOption) {
+            // Corregido: Usar el texto de 'addGeneralOption' si es un string
+            const optionText = addGeneralOption === true ? '-- General --' : addGeneralOption;
+            const option = new Option(optionText, '0');
+            select.add(option);
+        }
+
+        data.forEach(item => {
+            select.add(new Option(item[textField], item[valueField]));
+        });
+
+        // Intentar restaurar el valor previo si aún existe en las nuevas opciones
+        if (Array.from(select.options).some(opt => opt.value === currentValue)) {
+            select.value = currentValue;
+        }
+
+        return data;
+    } catch (error) {
+        console.error(`Fallo en poblarSelect ${selectId}:`, error);
+        showNotification(`Error al cargar datos para ${selectId}`, 'error');
+    }
+}
+
+// =============================================================
+// =========== GESTOR DE FILTROS Y VISTAS GLOBALES ==============
+// =============================================================
+function setupCascadingFilters(config) {
+    const { baseName, callback, year, organoGeneralOption } = config;
+
+    const selectors = {
+        año: year ? document.getElementById(`${baseName}-año`) : null,
+        dg: document.getElementById(`${baseName}-dg`),
+        ramo: document.getElementById(`${baseName}-ramo`),
+        responsable: document.getElementById(`${baseName}-responsable`),
+        institucion: document.getElementById(`${baseName}-institucion`),
+        organo: document.getElementById(`${baseName}-organo`)
+    };
+
+    const resetSelect = (select, message) => {
+        if (!select) return;
+        select.innerHTML = `<option value="">${message}</option>`;
+        select.disabled = true;
+    };
+
+    const populateDGs = async () => {
+        if (selectors.dg) {
+            await poblarSelectConAPI('/api/dgs', `${baseName}-dg`, 'id_dg', 'nombre_dg', 'Todos');
+            selectors.dg.disabled = false;
+        }
+    };
+    
+    selectors.dg?.addEventListener('change', async () => {
+        const dgId = selectors.dg.value;
+        resetSelect(selectors.ramo, 'Seleccione DG...');
+        resetSelect(selectors.responsable, 'Seleccione Ramo...');
+        resetSelect(selectors.institucion, 'Seleccione Responsable...');
+        resetSelect(selectors.organo, 'Seleccione Institución...');
+        if (callback) callback();
+        if (dgId) {
+            await poblarSelectConAPI(`/api/ramos?id_dg=${dgId}`, `${baseName}-ramo`, 'id_ramo', 'nombre_ramo', 'Todos');
+            selectors.ramo.disabled = false;
+        }
+    });
+
+    selectors.ramo?.addEventListener('change', async () => {
+        const ramoId = selectors.ramo.value;
+        resetSelect(selectors.responsable, 'Seleccione Ramo...');
+        resetSelect(selectors.institucion, 'Seleccione Responsable...');
+        resetSelect(selectors.organo, 'Seleccione Institución...');
+        if (callback) callback();
+        if (ramoId) {
+            await poblarSelectConAPI(`/api/responsables?id_ramo=${ramoId}`, `${baseName}-responsable`, 'id_responsable', 'nombre', 'Todos');
+            selectors.responsable.disabled = false;
+        }
+    });
+
+    selectors.responsable?.addEventListener('change', async () => {
+        const responsableId = selectors.responsable.value;
+        const ramoId = selectors.ramo.value;
+        resetSelect(selectors.institucion, 'Seleccione Responsable...');
+        resetSelect(selectors.organo, 'Seleccione Institución...');
+        if (callback) callback();
+        if (responsableId && ramoId) {
+            await poblarSelectConAPI(`/api/instituciones?responsable_id=${responsableId}&id_ramo=${ramoId}`, `${baseName}-institucion`, 'id_institucion', 'nombre_institucion', 'Todas');
+            selectors.institucion.disabled = false;
+        } else if (ramoId) {
+             await poblarSelectConAPI(`/api/instituciones?id_ramo=${ramoId}`, `${baseName}-institucion`, 'id_institucion', 'nombre_institucion', 'Todas');
+             selectors.institucion.disabled = false;
+        }
+    });
+
+    selectors.institucion?.addEventListener('change', async () => {
+        const institucionId = selectors.institucion.value;
+        resetSelect(selectors.organo, 'Seleccione Institución...');
+        if (callback) callback(); // <--- CORRECCIÓN CLAVE (Paso 4.2)
+        if (institucionId) {
+            await poblarSelectConAPI(`/api/organos-colegiados?institucion_id=${institucionId}`, `${baseName}-organo`, 'id_organo_colegiado', 'nombre_organo', 'Todos', organoGeneralOption);
+            selectors.organo.disabled = false;
+        }
+    });
+
+    selectors.organo?.addEventListener('change', callback);
+    if (year && selectors.año) {
+        selectors.año.addEventListener('change', callback);
+    }
+    
+    const resetAll = () => {
+        if (year && selectors.año) {
+            const currentYear = new Date().getFullYear();
+            selectors.año.innerHTML = `<option value="">${baseName === 'filtro' ? 'Seleccione...' : 'Todos'}</option>`;
+            for (let i = 2030; i >= 2024; i--) {
+                selectors.año.add(new Option(i, i));
+            }
+            if (baseName === 'filtro') {
+                selectors.año.value = currentYear;
+            }
+        }
+        populateDGs();
+        resetSelect(selectors.ramo, 'Seleccione DG...');
+        resetSelect(selectors.responsable, 'Seleccione Ramo...');
+        resetSelect(selectors.institucion, 'Seleccione Responsable...');
+        resetSelect(selectors.organo, 'Seleccione Institución...');
+        if (callback) callback();
+    };
+    resetAll();
+}
+
+// === FUNCIONES DE VISIBILIDAD DE VISTAS (Paso 4.3) ===
+function showReportesMainView() {
+    document.getElementById('reportes-main-view').classList.remove('hidden');
+    document.getElementById('reportes-detail-view').classList.add('hidden');
+}
+
+function showReportesDetailView() {
+    document.getElementById('reportes-main-view').classList.add('hidden');
+    document.getElementById('reportes-detail-view').classList.remove('hidden');
+}
+
+function poblarSelectConOpciones(selectId, opciones, placeholder) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = placeholder ? `<option value="">${placeholder}</option>` : '';
+    opciones.forEach(opcion => {
+        select.add(new Option(opcion, opcion));
+    });
+}
+
+
+const fileManagers = {};
+
+function initFileInputManagers() {
+    const fileInputs = [
+        { inputId: 'sesion-files-input', listId: 'sesion-files-list' },
+        { inputId: 'informe-files-input', listId: 'informe-files-list' },
+        { inputId: 'recomendacion-files-input', listId: 'recomendacion-files-list' }
+    ];
+
+    fileInputs.forEach(({ inputId, listId }) => {
+        const inputElement = document.getElementById(inputId);
+        const listElement = document.getElementById(listId);
+
+        if (inputElement && listElement) {
+            let files = [];
+            const form = inputElement.closest('form');
+
+            const renderFiles = () => {
+                listElement.innerHTML = '';
+                if (files.length === 0) {
+                    listElement.innerHTML = '<p style="text-align:center; color:#888;">No hay archivos seleccionados.</p>';
+                } else {
+                    files.forEach((file, index) => {
+                        const item = document.createElement('div');
+                        item.className = 'file-list-item';
+                        item.innerHTML = `
+                            <span>${file.name}</span>
+                            <button type="button" class="remove-file-btn" data-index="${index}">&times;</button>
+                        `;
+                        listElement.appendChild(item);
+                    });
+                }
+                if (form && formValidators[form.id]) {
+                    formValidators[form.id].validate();
+                }
+            };
+
+            inputElement.addEventListener('change', () => {
+                Array.from(inputElement.files).forEach(newFile => {
+                    if (!files.some(existingFile => existingFile.name === newFile.name)) {
+                        files.push(newFile);
+                    }
+                });
+                inputElement.value = '';
+                renderFiles();
+            });
+
+            listElement.addEventListener('click', (e) => {
+                if (e.target.classList.contains('remove-file-btn')) {
+                    const index = parseInt(e.target.dataset.index, 10);
+                    files.splice(index, 1);
+                    renderFiles();
+                }
+            });
+
+            fileManagers[inputId] = {
+                getFiles: () => files,
+                clearFiles: () => {
+                    files = [];
+                    renderFiles();
+                }
+            };
+            
+            renderFiles();
+        }
+    });
+}
+
+
+// =============================================================
+// =================== MÓDULO DE SESIONES ======================
+// =============================================================
+
+
+// --- FUNCIÓN DE TÍTULO CORREGIDA Y ROBUSTA ---
+function generarTituloSesion(sesion) {
+    if (!sesion) return 'Sesión Desconocida';
+
+    // REGLA #1: Formato especial para sesiones "Programadas"
+    if (sesion.estatus === 'Programada') {
+        return `${sesion.numero_ordinal}a Sesión Trimestral ${sesion.año}`;
+    }
+
+    // REGLA #2: Formato para sesiones Extraordinarias
+    if (sesion.id_tipo_sesion === 2) {
+        return `Sesión Extraordinaria (Sesión ${sesion.id_sesion} - ${sesion.año})`;
+    }
+
+    // REGLA #3: Formato para sesiones Ordinarias "Realizadas"
+    if (sesion.id_tipo_sesion === 1) {
+        const tituloPrincipal = `${sesion.numero_ordinal}a Sesión Trimestral ${sesion.año}`;
+        const identificador = `(Sesión ${sesion.id_sesion} - ${sesion.año})`;
+        return `${tituloPrincipal} ${identificador}`;
+    }
+
+    // REGLA #4 (FALLBACK): Para cualquier otro caso
+    return `Sesión ID: ${sesion.id_sesion} - ${sesion.año}`;
+}
+// --- FIN DE LA FUNCIÓN AUXILIAR ---
+let sesionesData = {}; 
+
+function initSesionesModule() {
+    // Se reemplaza toda la lógica anterior por una sola llamada a la nueva función.
+    setupCascadingFilters({
+        baseName: 'filtro', // Prefijo de los IDs: 'filtro-dg', 'filtro-ramo', etc.
+        year: true, // Indica que esta sección usa un filtro de año.
+        callback: buscarCalendario // Función a ejecutar cuando un filtro cambia.
+    });
+
+    // Los listeners de los modales y formularios no cambian y se mantienen.
+    document.getElementById('calendario-container')?.addEventListener('click', handleCalendarioClick);
+    document.getElementById('ejecucion-form')?.addEventListener('submit', handleEjecucionSubmit);
+    
+    const btnAgendar = document.getElementById('btn-agendar-extraordinaria');
+    if (btnAgendar) {
+        btnAgendar.addEventListener('click', () => abrirModalEjecucion({ modo: 'extraordinaria' }));
+    }
+
+    document.getElementById('sesion-detalle-modal')?.addEventListener('click', handleDetalleModalClick);
+}
+
+async function buscarCalendario() {
+    const año = document.getElementById('filtro-año').value;
+    const institucionId = document.getElementById('filtro-institucion').value;
+    const organoId = document.getElementById('filtro-organo').value;
+    const container = document.getElementById('calendario-container');
+
+    // La lógica para habilitar el botón sigue dependiendo de los mismos 3 campos clave.
+    document.getElementById('btn-agendar-extraordinaria').disabled = !año || !institucionId || !organoId;
+
+    // La condición para mostrar el calendario tampoco cambia.
+    if (!año || !institucionId || !organoId) {
+        container.innerHTML = '<p>Por favor, complete los filtros para ver el calendario (Año, Institución y Órgano son requeridos).</p>';
+        return;
+    }
+
+    try {
+        container.innerHTML = '<p>Cargando calendario...</p>';
+        // La petición a la API sigue siendo la misma, ya que el backend de sesiones
+        // solo necesita estos tres IDs para funcionar.
+        const calendario = await fetchAPI(`/api/sesiones?año=${año}&institucion_id=${institucionId}&organo_id=${organoId}`);
+        renderCalendario(calendario);
+    } catch (error) { 
+        console.error('Error al buscar calendario:', error);
+        container.innerHTML = '<p style="color:red;">Error al cargar el calendario. Revise la consola.</p>';
+    }
+}
+
+
+
+function renderCalendario(sesiones) {
+	
+	console.log('Datos EXACTOS recibidos del backend:', sesiones);
+	
+    const container = document.getElementById('calendario-container');
+    container.innerHTML = '';
+    sesionesData = {};
+
+    if (!sesiones || sesiones.length === 0) {
+        container.innerHTML = '<p>No hay sesiones programadas o realizadas para esta selección.</p>';
+        return;
+    }
+
+    // Lógica de filtrado estricta para separar las sesiones
+    const sesionesOrdinarias = sesiones.filter(s => s.tipo_sesion && s.tipo_sesion.toLowerCase() === 'ordinaria');
+    const sesionesExtraordinarias = sesiones.filter(s => s.tipo_sesion && s.tipo_sesion.toLowerCase() === 'extraordinaria');
+
+    // Renderizar sección de Sesiones Ordinarias
+    if (sesionesOrdinarias.length > 0) {
+        const headerOrd = document.createElement('h2');
+        headerOrd.textContent = 'Sesiones Ordinarias';
+        container.appendChild(headerOrd);
+
+        sesionesOrdinarias.forEach(sesion => {
+            sesionesData[sesion.id_sesion] = sesion;
+            const card = crearCardSesion(sesion);
+            container.appendChild(card);
+        });
+    }
+
+    // Renderizar sección de Sesiones Extraordinarias
+    if (sesionesExtraordinarias.length > 0) {
+        const headerExt = document.createElement('h2');
+        headerExt.style.marginTop = '2em';
+        headerExt.textContent = 'Sesiones Extraordinarias';
+        container.appendChild(headerExt);
+
+        sesionesExtraordinarias.forEach(sesion => {
+            sesionesData[sesion.id_sesion] = sesion;
+            const card = crearCardSesion(sesion);
+            container.appendChild(card);
+        });
+    }
+}
+
+function crearCardSesion(sesion) {
+    const card = document.createElement('div');
+    card.className = 'sesion-card';
+    card.dataset.idSesion = sesion.id_sesion;
+    const titulo = generarTituloSesion(sesion);
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'sesion-card-info';
+    infoDiv.innerHTML = `<h3>${titulo}</h3><p>Estatus: <span class="estatus estatus-${sesion.estatus}">${sesion.estatus}</span></p>`;
+    card.appendChild(infoDiv);
+    if (sesion.estatus === 'Programada') {
+        const button = document.createElement('button');
+        button.className = 'btn-primary btn-registrar';
+        button.textContent = 'Registrar Ejecución';
+        card.appendChild(button);
+    } else if (sesion.estatus === 'Realizada') {
+        card.classList.add('realizada');
+        card.style.cursor = 'pointer';
+    }
+    return card;
+}
+
+function handleCalendarioClick(event) {
+    console.log("Se detectó un CLIC dentro del contenedor del calendario.");
+    const card = event.target.closest('.sesion-card');
+    if (!card) {
+        console.log("El clic no fue en una tarjeta de sesión. Se ignora.");
+        return;
+    }
+
+    const idSesion = card.dataset.idSesion;
+    console.log(`Clic en tarjeta con ID de sesión: ${idSesion}`);
+
+    if (!idSesion) {
+        console.error("ERROR: La tarjeta no tiene un 'data-id-sesion'. No se puede continuar.");
+        return;
+    }
+
+    // Punto #4: Clic en "Registrar Ejecución"
+    if (event.target.classList.contains('btn-registrar')) {
+        console.log("El clic fue en el botón 'Registrar Ejecución'. Abriendo modal de ejecución...");
+        abrirModalEjecucion({ modo: 'ordinaria', idSesion });
+    } 
+    // Punto #3: Clic en una tarjeta "Realizada"
+    else if (card.classList.contains('realizada')) {
+        console.log("El clic fue en una tarjeta 'Realizada'. Abriendo modal de detalles...");
+        abrirModalDetalleSesion(idSesion);
+    } else {
+        console.log("El clic fue en una tarjeta, pero no en un botón o en una sesión 'Realizada'.");
+    }
+}
+
+async function abrirModalDetalleSesion(idSesion) {
+    const sesion = sesionesData[idSesion];
+    if (!sesion) {
+        console.error("No se encontraron los datos para la sesión con ID:", idSesion);
+        return;
+    }
+    
+    const modal = document.getElementById('sesion-detalle-modal');
+    if (!modal) {
+        console.error("CRÍTICO: El modal 'sesion-detalle-modal' no existe en el HTML.");
+        return;
+    }
+
+    const titleEl = document.getElementById('sesion-detalle-title');
+    const bodyEl = document.getElementById('sesion-detalle-body');
+    const footerEl = document.getElementById('sesion-detalle-footer');
+
+    const titulo = generarTituloSesion(sesion);
+    titleEl.textContent = `${titulo}`;
+    bodyEl.innerHTML = `
+        <p><strong>Número de Oficio / Nombre Oficial:</strong> ${sesion.nombre_oficial_sesion || 'No registrado'}</p>
+        <p><strong>Fecha Real de Ejecución:</strong> ${sesion.fecha_realizada ? new Date(sesion.fecha_realizada).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'N/A'}</p>
+        <hr>
+        <h3>Documentos Adjuntos</h3>
+        <ul id="sesion-evidencias-list"><li>Cargando...</li></ul>
+    `;
+    footerEl.innerHTML = `<button id="btn-edit-sesion" class="btn-warning" data-id-sesion="${idSesion}">Editar Ejecución</button>`;
+    modal.style.display = 'flex';
+    
+    const evidenciasList = document.getElementById('sesion-evidencias-list');
+    try {
+        const evidencias = await fetchAPI(`/api/evidencias?parent_type=sesion&parent_id=${idSesion}`);
+        if (evidencias && evidencias.length > 0) {
+            evidenciasList.innerHTML = '';
+            evidencias.forEach(ev => {
+                const li = document.createElement('li');
+                li.innerHTML = `<a href="/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
+                evidenciasList.appendChild(li);
+            });
+        } else {
+            evidenciasList.innerHTML = '<li>No hay documentos adjuntos.</li>';
+        }
+    } catch (error) {
+        console.error("Error al cargar evidencias de sesión:", error);
+        evidenciasList.innerHTML = '<li>Error al cargar documentos.</li>';
+    }
+}
+
+function handleDetalleModalClick(event) {
+    if (event.target.id === 'btn-edit-sesion') {
+        const idSesion = event.target.dataset.idSesion;
+        const sesion = sesionesData[idSesion];
+        if (sesion) {
+            document.getElementById('sesion-detalle-modal').style.display = 'none';
+            abrirModalEjecucion({ modo: 'edit', sesionData: sesion });
+        }
+    }
+}
+
+function abrirModalEjecucion({ modo, idSesion = null, sesionData = null }) {
+    console.log(`Función abrirModalEjecucion llamada con modo: '${modo}' y ID de sesión: ${idSesion}`);
+    const modal = document.getElementById('ejecucion-modal');
+    if (!modal) {
+        console.error("CRÍTICO: El modal 'ejecucion-modal' no existe en el HTML.");
+        return;
+    }
+
+    const form = document.getElementById('ejecucion-form');
+    const modalTitle = document.getElementById('modal-title');
+    form.reset();
+    fileManagers['sesion-files-input'].clearFiles();
+    form.querySelector('#id_calendario_hidden').value = idSesion || (sesionData ? sesionData.id_sesion : '');
+    form.querySelector('#id_ejecucion_hidden').value = sesionData ? sesionData.id_sesion : '';
+    if (modo === 'ordinaria') {
+        modalTitle.textContent = 'Registrar Ejecución de Sesión Ordinaria';
+    } else if (modo === 'extraordinaria') {
+        modalTitle.textContent = 'Registrar Sesión Extraordinaria';
+    } else if (modo === 'edit' && sesionData) {
+        modalTitle.textContent = 'Editar Ejecución de Sesión';
+        form.querySelector('[name="numero_sesion_oficial"]').value = sesionData.nombre_oficial_sesion || '';
+        if (sesionData.fecha_realizada) {
+            form.querySelector('[name="fecha_real"]').value = new Date(sesionData.fecha_realizada).toISOString().split('T')[0];
+        }
+    }
+    modal.style.display = 'flex';
+    console.log("Modal de ejecución debería estar VISIBLE ahora.");
+    if(formValidators[form.id]) formValidators[form.id].validate();
+}
+
+
+
+async function handleEjecucionSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const files = fileManagers['sesion-files-input'].getFiles();
+    formData.delete('files');
+
+    // Esta línea ahora funcionará gracias al cambio en el HTML
+    const idSesion = formData.get('id_calendario_hidden'); 
+    
+    // --- LOGS DE DEPURACIÓN ---
+    console.log(`[DEBUG] SUBMIT INICIADO. idSesion del formulario: '${idSesion}'`);
+
+    const esSesionExistente = idSesion && !isNaN(parseInt(idSesion));
+    const esSesionProgramada = idSesion && typeof idSesion === 'string' && idSesion.startsWith('programada_');
+
+    console.log(`[DEBUG] EVALUANDO: esSesionProgramada=${esSesionProgramada}, esSesionExistente=${esSesionExistente}`);
+
+    let url, method, successMessage;
+
+    if (esSesionProgramada) {
+        console.log("[DEBUG] RUTA LÓGICA: REGISTRAR ORDINARIA");
+        url = '/api/sesiones/ordinaria';
+        method = 'POST';
+        successMessage = 'Sesión ordinaria registrada exitosamente.';
+        formData.append('año', document.getElementById('filtro-año').value);
+        formData.append('institucion_id', document.getElementById('filtro-institucion').value);
+        formData.append('organo_id', document.getElementById('filtro-organo').value);
+        formData.append('fecha_realizada', formData.get('fecha_real'));
+
+    } else if (esSesionExistente) {
+        console.log("[DEBUG] RUTA LÓGICA: EDITAR EXISTENTE");
+        url = `/api/sesiones/${idSesion}`;
+        method = 'PUT';
+        successMessage = 'Sesión actualizada exitosamente.';
+        formData.append('nombre_oficial_sesion', formData.get('numero_sesion_oficial'));
+        formData.append('fecha_realizada', formData.get('fecha_real'));
+
+    } else {
+        console.log("[DEBUG] RUTA LÓGICA: CREAR EXTRAORDINARIA (FALLBACK)");
+        url = '/api/sesiones/extraordinaria';
+        method = 'POST';
+        successMessage = 'Sesión extraordinaria registrada exitosamente.';
+        formData.append('año', document.getElementById('filtro-año').value);
+        formData.append('institucion_id', document.getElementById('filtro-institucion').value);
+        formData.append('organo_id', document.getElementById('filtro-organo').value);
+        formData.append('fecha_realizada', formData.get('fecha_real'));
+    }
+    
+    try {
+        const response = await fetchAPI(url, { method, body: formData });
+        const sesionAfectadaId = response.id_sesion;
+
+        if (files.length > 0 && sesionAfectadaId) {
+            const fileFormData = new FormData();
+            files.forEach(file => fileFormData.append('files', file));
+            fileFormData.append('parent_type', 'sesion');
+            fileFormData.append('parent_id', sesionAfectadaId);
+            await fetchAPI('/api/upload', { method: 'POST', body: fileFormData });
+        }
+        
+        form.reset();
+        document.getElementById('ejecucion-modal').style.display = 'none';
+        showNotification(successMessage);
+        buscarCalendario();
+    } catch (error) {    
+        console.error('Error al guardar sesión:', error);    
+        showNotification(`Error: ${error.message}`, 'error');
+    }
+}
+// =============================================================
+// --- MÓDULO DE INFORMES Y RECOMENDACIONES ---
+// =============================================================
+
+let currentInformeId = null;
+let currentRecomendacionData = {};
+let currentInformeData = {};
+let currentView = 'informes';
+
+function initReportesModule() {
+    // La inicialización de filtros ahora es una sola llamada centralizada.
+    setupCascadingFilters({
+        baseName: 'filtro-informe', // Prefijo de los IDs: 'filtro-informe-dg', etc.
+        year: true, // Esta sección usa un filtro de año.
+        organoGeneralOption: "Todos", // El filtro de órgano tendrá una opción para "Todos".
+        callback: cargarInformes // Función a ejecutar cuando un filtro cambia.
+    });
+
+    // El resto de los listeners para botones y formularios se mantienen intactos.
+    document.getElementById('btn-nuevo-informe')?.addEventListener('click', handleNuevoInformeClick);
+    document.getElementById('informe-form')?.addEventListener('submit', handleInformeFormSubmit);
+    document.getElementById('informes-tbody')?.addEventListener('click', handleInformeRowClick);
+    document.getElementById('btn-volver-a-informes')?.addEventListener('click', showReportesMainView);
+    document.getElementById('btn-nueva-recomendacion-informe')?.addEventListener('click', () => handleNuevaRecomendacionClick({ informe: currentInformeData[currentInformeId] }));
+    
+    // Estos listeners son para el MODAL y se deben conservar
+    document.getElementById('responsable-select-informe')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'institucion-select-informe', 'organo-select-informe'));
+    document.getElementById('institucion-select-informe')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'organo-select-informe', null, true));
+
+    document.getElementById('recomendacion-form')?.addEventListener('submit', handleRecomendacionFormSubmit);
+    document.getElementById('recomendaciones-informe-tbody')?.addEventListener('click', handleRecomendacionesTableClick);
+    document.getElementById('recomendacion-detalle-modal')?.addEventListener('click', handleDetalleRecomendacionModalClick);
+}
+
+// Estas funciones se mantienen porque son USADAS POR LOS MODALES
+async function poblarInstituciones(responsableId, institucionSelectId, organoSelectId) {
+    const selectInstitucion = document.getElementById(institucionSelectId);
+    selectInstitucion.innerHTML = '<option value="">Cargando...</option>';
+    selectInstitucion.disabled = true;
+    if (organoSelectId) {
+        const selectOrgano = document.getElementById(organoSelectId);
+        if (selectOrgano) {
+            selectOrgano.innerHTML = '<option value="">Seleccione Institución...</option>';
+            selectOrgano.disabled = true;
+        }
+    }
+    if (!responsableId) {
+        selectInstitucion.innerHTML = '<option value="">Seleccione Responsable...</option>';
+        return;
+    }
+    try {
+        await poblarSelectConAPI(`/api/instituciones?responsable_id=${responsableId}`, institucionSelectId, 'id_institucion', 'nombre_institucion', 'Seleccione...');
+        selectInstitucion.disabled = false;
+    } catch (error) { console.error("Fallo en poblarInstituciones:", error); }
+}
+
+async function poblarOrganosColegiados(institucionId, organoSelectId, callbackFn, addGeneral) {
+    const selectOrgano = document.getElementById(organoSelectId);
+    selectOrgano.innerHTML = '<option value="">Cargando...</option>';
+    selectOrgano.disabled = true;
+    if (!institucionId) {
+        selectOrgano.innerHTML = '<option value="">Seleccione Institución...</option>';
+        return;
+    };
+    try {
+        await poblarSelectConAPI(`/api/organos-colegiados?institucion_id=${institucionId}`, organoSelectId, 'id_organo_colegiado', 'nombre_organo', 'Seleccione...', addGeneral);
+        selectOrgano.disabled = false;
+        if (callbackFn) callbackFn();
+    } catch (error) { console.error("Fallo en poblarOrganosColegiados:", error); }
+}
+
+
+async function cargarInformes() {
+    // Leemos los valores de TODOS los filtros, incluyendo los nuevos
+    const año = document.getElementById('filtro-informe-año').value; // <-- CORRECCIÓN (Paso 4.1)
+    const dgId = document.getElementById('filtro-informe-dg').value;
+    const ramoId = document.getElementById('filtro-informe-ramo').value;
+    const responsableId = document.getElementById('filtro-informe-responsable').value;
+    const institucionId = document.getElementById('filtro-informe-institucion').value;
+    const organoId = document.getElementById('filtro-informe-organo').value;
+
+    // Construimos dinámicamente los parámetros para la URL
+    const params = new URLSearchParams();
+    if (año) params.append('periodo_reportado', año); // <-- CORRECCIÓN (Paso 4.1)
+    if (dgId) params.append('id_dg', dgId);
+    if (ramoId) params.append('id_ramo', ramoId);
+    if (responsableId) params.append('responsable_id', responsableId);
+    if (institucionId) params.append('institucion_id', institucionId);
+    if (organoId && organoId !== '0') params.append('organo_id', organoId); // Ignoramos la opción "Todos"
+
+    const queryString = params.toString();
+    const url = `/api/informes${queryString ? `?${queryString}` : ''}`;
+
+    try {
+        const informes = await fetchAPI(url);
+        const tbody = document.getElementById('informes-tbody');
+        tbody.innerHTML = '';
+        currentInformeData = {};
+        if (informes.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="10">No se encontraron informes con los filtros seleccionados.</td></tr>`;
+        } else {
+            informes.forEach(informe => {
+                currentInformeData[informe.id_informe] = informe;
+                const tr = document.createElement('tr');
+                tr.dataset.informeId = informe.id_informe;
+                const descripcionHtml = `<div class="truncate-text" title="${informe.descripcion || ''}">${informe.descripcion ? informe.descripcion : 'Sin descripción'}</div>`;
+                
+                tr.innerHTML = `
+                    <td>${informe.siglas}</td>
+                    <td>${informe.nombre_organo}</td>
+                    <td>${descripcionHtml}</td>
+                    <td>${informe.nombre_informe}</td>
+                    <td>${informe.periodo_reportado}</td>
+                    <td>${new Date(informe.fecha_informe).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</td>
+                    <td>${informe.nombre_responsable}</td>
+                    <td>${informe.recomendaciones_emitidas}</td>
+                    <td>${informe.recomendaciones_atendidas}</td>
+                    <td class="actions-cell">
+                        <button class="btn-icon btn-view-detail" title="Ver Detalles"><svg class="icon-view" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
+                        <button class="btn-icon btn-edit-informe" title="Editar Informe"><svg class="icon-edit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+                        <button class="btn-icon btn-delete-informe" title="Eliminar Informe"><svg class="icon-delete" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+                    </td>`;
+                tbody.appendChild(tr);
+            });
+        }
+    } catch (error) { console.error("Error al cargar informes:", error); }
+}
+
+
+async function handleNuevoInformeClick() { 
+    const form = document.getElementById('informe-form');
+    form.reset();
+    fileManagers['informe-files-input'].clearFiles();
+    document.getElementById('id_informe_hidden_form').value = '';
+    document.getElementById('informe-modal-title').textContent = "Nuevo Informe";
+    
+    document.getElementById('responsable-select-informe').disabled = false;
+    document.getElementById('institucion-select-informe').disabled = true;
+    document.getElementById('organo-select-informe').disabled = true;
+    
+    try {
+        await poblarSelectConAPI('/api/responsables', 'responsable-select-informe', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+        
+        const periodoSelect = document.getElementById('periodo-select');
+        const añoActual = new Date().getFullYear();
+        periodoSelect.innerHTML = '';
+        for (let i = 2030; i >= 2024; i--) {
+            periodoSelect.add(new Option(i, i));
+        }
+        periodoSelect.value = añoActual;
+        
+        document.getElementById('institucion-select-informe').innerHTML = '<option value="">Seleccione un responsable...</option>';
+        document.getElementById('organo-select-informe').innerHTML = '<option value="">Seleccione una institución...</option>';
+        document.getElementById('informe-modal').style.display = 'flex';
+        formValidators[form.id].validate();
+    } catch (error) { console.error("Error al preparar formulario:", error); }
+}
+
+async function handleInformeFormSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    const files = fileManagers['informe-files-input'].getFiles();
+    formData.delete('files');
+
+    const informeId = formData.get('id_informe');
+    const method = informeId ? 'PUT' : 'POST';
+    const url = informeId ? `/api/informes/${informeId}` : '/api/informes';
+    
+    try {
+        const response = await fetchAPI(url, { method, body: formData });
+        const newInformeId = informeId || response.id_informe;
+
+        if (files.length > 0) {
+            const fileFormData = new FormData();
+            for (const file of files) {
+                fileFormData.append('files', file);
+            }
+            fileFormData.append('parent_type', 'informe');
+            fileFormData.append('parent_id', newInformeId);
+            await fetchAPI('/api/upload', { method: 'POST', body: fileFormData });
+        }
+
+        form.reset();
+        document.getElementById('informe-modal').style.display = 'none';
+        showNotification('Informe guardado exitosamente.');
+        cargarInformes();
+    } catch (error) { console.error("Error al guardar informe:", error); showNotification(`Error: ${error.message}`, 'error'); }
+}
+
+
+async function handleInformeRowClick(event) {
+    const target = event.target;
+    const button = target.closest('.btn-icon');
+    const row = target.closest('tr');
+    if (!row || !row.dataset.informeId || !button) return;
+
+    const informeId = row.dataset.informeId;
+
+    if (button.classList.contains('btn-edit-informe')) {
+        handleEditInforme(informeId);
+    } else if (button.classList.contains('btn-delete-informe')) {
+        handleDeleteInforme(informeId);
+    } else if (button.classList.contains('btn-view-detail')){
+        await cargarVistaDeDetalle(informeId);
+    }
+}
+
+async function handleEditInforme(informeId) {
+    const informe = currentInformeData[informeId];
+    if (!informe) return;
+    await handleNuevoInformeClick(); 
+    const form = document.getElementById('informe-form');
+    const responsableSelect = form.querySelector('[name="id_responsable"]');
+    const institucionSelect = form.querySelector('[name="id_institucion"]');
+    const organoSelect = form.querySelector('[name="id_organo_colegiado"]');
+    
+    form.querySelector('[name="fecha_informe"]').value = new Date(informe.fecha_informe).toISOString().split('T')[0];
+    form.querySelector('[name="id_informe"]').value = informe.id_informe;
+    form.querySelector('[name="periodo"]').value = informe.periodo;
+    form.querySelector('[name="descripcion"]').value = informe.descripcion || '';
+    responsableSelect.value = informe.id_responsable;
+    
+    await poblarInstituciones(informe.id_responsable, 'institucion-select-informe', 'organo-select-informe'); 
+    institucionSelect.value = informe.id_institucion;
+    
+    await poblarOrganosColegiados(informe.id_institucion, 'organo-select-informe');
+    organoSelect.value = informe.id_organo_colegiado;
+    
+    form.querySelector('[name="tipo_informe"]').value = informe.tipo_informe;
+    responsableSelect.disabled = true;
+    institucionSelect.disabled = true;
+    organoSelect.disabled = false;
+    document.getElementById('informe-modal-title').textContent = "Editar Informe";
+    formValidators[form.id].validate();
+}
+
+async function handleDeleteInforme(informeId) {
+    showConfirmModal(
+        'Confirmar Eliminación de Informe',
+        '¿Estás seguro de que deseas eliminar este informe y todas sus recomendaciones asociadas? Esta acción no se puede deshacer.',
+        async () => {
+            try {
+                await fetchAPI(`/api/informes/${informeId}`, { method: 'DELETE' });
+                showNotification('Informe eliminado.');
+                cargarInformes();
+            } catch (error) { 
+                console.error("Error al eliminar informe:", error); 
+                showNotification(`Error: ${error.message}`, 'error'); 
+            }
+        }
+    );
+}
+
+async function cargarVistaDeDetalle(informeId) {
+    currentInformeId = informeId;
+    currentView = 'informes';
+    try {
+        const [informe, evidencias] = await Promise.all([
+            fetchAPI(`/api/informes/${informeId}`),
+            fetchAPI(`/api/evidencias?parent_type=informe&parent_id=${informeId}`)
+        ]);
+        currentInformeData[informeId] = { ...currentInformeData[informeId], ...informe };
+        document.getElementById('informe-detalle-header').innerHTML = `
+            <h2>${informe.nombre_institucion}</h2>
+            <p><strong>Órgano Colegiado:</strong> ${informe.nombre_organo}</p>
+            <p><strong>Tipo de Informe:</strong> ${informe.tipo_informe} - ${informe.periodo}</p>
+            <hr>
+            <p><strong>Descripción:</strong></p>
+            <p>${informe.descripcion || 'No se proporcionó una descripción.'}</p>
+        `;
+        const evidenciasList = document.getElementById('informe-evidencias-list');
+        evidenciasList.innerHTML = '';
+        if (evidencias.length > 0) {
+            evidencias.forEach(ev => {
+                const li = document.createElement('li');
+                li.innerHTML = `<a href="/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
+                evidenciasList.appendChild(li);
+            });
+        } else {
+            evidenciasList.innerHTML = '<li>No hay documentos de soporte.</li>';
+        }
+        const recomendaciones = await fetchAPI(`/api/recomendaciones?informe_id=${informeId}`);
+        renderRecomendaciones(recomendaciones, 'recomendaciones-informe-tbody');
+        showReportesDetailView();
+    } catch (error) { console.error("Error al cargar vista de detalle:", error); }
+}
+
+function renderRecomendaciones(recomendaciones, tbodyId) {
+    const tbody = document.getElementById(tbodyId);
+    tbody.innerHTML = '';
+    currentRecomendacionData = {};
+    const isIndependentView = tbodyId === 'recomendaciones-independientes-tbody';
+    const colspan = isIndependentView ? 11 : 9;
+
+    if (recomendaciones.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${colspan}">No hay recomendaciones.</td></tr>`;
+    } else {
+        recomendaciones.forEach(rec => {
+            currentRecomendacionData[rec.id_recomendacion] = rec;
+            const tr = document.createElement('tr');
+            tr.dataset.recomendacionId = rec.id_recomendacion;
+
+            const institucionCell = isIndependentView ? `<td>${rec.siglas}</td>` : '';
+            const organoCell = isIndependentView ? `<td>${rec.nombre_organo}</td>` : '';
+            const informeCell = isIndependentView ? `<td>${rec.id_informe || 'Independiente'}</td>` : '';
+            const descripcionHtml = `<div class="truncate-text" title="${rec.descripcion}">${rec.descripcion}</div>`;
+            
+            tr.innerHTML = `
+                ${institucionCell}
+                ${organoCell}
+                <td>${descripcionHtml}</td>
+                <td>${rec.area_responsable_atencion}</td>
+                ${!isIndependentView ? `<td>${rec.nombre_organo || 'N/A'}</td>` : ''}
+                <td>${new Date(rec.fecha_emision).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</td>
+                <td>${rec.fecha_compromiso ? new Date(rec.fecha_compromiso).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'N/A'}</td>
+                <td>${rec.estatus}</td>
+                <td>${rec.prioridad}</td>
+                ${informeCell}
+                <td>${rec.evidencias_count || 0}</td>
+                <td class="actions-cell">
+                    <button class="btn-icon btn-view-rec" title="Ver Detalles"><svg class="icon-view" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
+                    <button class="btn-icon btn-edit-rec" title="Editar"><svg class="icon-edit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+                    <button class="btn-icon btn-delete-rec" title="Eliminar"><svg class="icon-delete" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+                </td>`;
+            tbody.appendChild(tr);
+        });
+    }
+}
+
+
+async function handleNuevaRecomendacionClick({ informe = null }) {
+    const form = document.getElementById('recomendacion-form');
+    form.reset();
+    fileManagers['recomendacion-files-input'].clearFiles();
+
+    const independentFieldsDiv = document.getElementById('rec-independent-fields');
+    const independentSelects = independentFieldsDiv.querySelectorAll('select');
+    const hiddenInformeId = document.getElementById('id_informe_hidden_rec');
+    
+    if (informe) { 
+        document.getElementById('recomendacion-modal-title').textContent = "Nueva Recomendación para Informe";
+        independentFieldsDiv.classList.add('hidden');
+        independentSelects.forEach(sel => sel.required = false);
+        hiddenInformeId.value = informe.id_informe;
+    } else { 
+        document.getElementById('recomendacion-modal-title').textContent = "Nueva Recomendación Independiente";
+        independentFieldsDiv.classList.remove('hidden');
+        independentSelects.forEach(sel => sel.required = true);
+        hiddenInformeId.value = '';
+        await poblarSelectConAPI('/api/responsables', 'rec-responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+        document.getElementById('rec-institucion-select').innerHTML = '<option value="">Seleccione responsable...</option>';
+        document.getElementById('rec-organo-select').innerHTML = '<option value="">Seleccione institución...</option>';
+    }
+    
+    document.getElementById('id_recomendacion_hidden').value = '';
+    form.querySelector('[name="fecha_emision"]').value = new Date().toISOString().split('T')[0];
+    document.getElementById('recomendacion-evidencia-list').innerHTML = '<li>No hay evidencias.</li>';
+    document.getElementById('recomendacion-modal').style.display = 'flex';
+    formValidators[form.id].validate();
+}
+
+async function handleRecomendacionFormSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    if (formData.get('id_informe')) {
+        const informe = currentInformeData[formData.get('id_informe')];
+        if (informe) {
+            formData.set('id_institucion', informe.id_institucion);
+            formData.set('id_organo_colegiado', informe.id_organo_colegiado);
+        }
+    }
+
+    const files = fileManagers['recomendacion-files-input'].getFiles();
+    formData.delete('files');
+
+    const recId = formData.get('id_recomendacion');
+    const method = recId ? 'PUT' : 'POST';
+    const url = recId ? `/api/recomendaciones/${recId}` : '/api/recomendaciones';
+
+    try {
+        const response = await fetchAPI(url, { method, body: formData });
+        const newRecId = recId || response.id_recomendacion;
+
+        if (files.length > 0) {
+            const fileFormData = new FormData();
+            for(const file of files) {
+                fileFormData.append('files', file);
+            }
+            fileFormData.append('parent_type', 'recomendacion');
+            fileFormData.append('parent_id', newRecId);
+            await fetchAPI('/api/upload', { method: 'POST', body: fileFormData });
+        }
+
+        form.reset();
+        document.getElementById('recomendacion-modal').style.display = 'none';
+        showNotification('Recomendación guardada.');
+        if (currentView === 'informes') {
+            cargarVistaDeDetalle(currentInformeId);
+        } else {
+            cargarRecomendacionesIndependientes();
+        }
+    } catch (error) { console.error("Error al guardar recomendación:", error); showNotification(`Error: ${error.message}`, 'error'); }
+}
+
+
+function handleRecomendacionesTableClick(event) {
+    const target = event.target;
+    const button = target.closest('.btn-icon');
+    const row = target.closest('tr');
+    if (!row || !row.dataset.recomendacionId || !button) return;
+
+    const recId = row.dataset.recomendacionId;
+
+    if (button.classList.contains('btn-view-rec')) {
+        abrirModalDetalleRecomendacion(recId);
+    }
+    if (button.classList.contains('btn-edit-rec')) {
+        handleEditRecomendacion(recId);
+    }
+    if (button.classList.contains('btn-delete-rec')) {
+        handleDeleteRecomendacion(recId);
+    }
+}
+
+async function abrirModalDetalleRecomendacion(recId) {
+    const rec = currentRecomendacionData[recId];
+    if (!rec) return;
+
+    const modal = document.getElementById('recomendacion-detalle-modal');
+    const titleEl = document.getElementById('recomendacion-detalle-title');
+    const bodyEl = document.getElementById('recomendacion-detalle-body');
+    const footerEl = document.getElementById('recomendacion-detalle-footer');
+
+    titleEl.textContent = `Detalle de la Recomendación`;
+    bodyEl.innerHTML = `
+        <p><strong>Descripción:</strong></p>
+        <p>${rec.descripcion}</p>
+        <hr>
+        <p><strong>Área Responsable:</strong> ${rec.area_responsable_atencion}</p>
+        <p><strong>Fecha Emisión:</strong> ${new Date(rec.fecha_emision).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</p>
+        <p><strong>Fecha Compromiso:</strong> ${rec.fecha_compromiso ? new Date(rec.fecha_compromiso).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'N/A'}</p>
+        <p><strong>Estatus:</strong> ${rec.estatus}</p>
+        <p><strong>Prioridad:</strong> ${rec.prioridad}</p>
+        <p><strong>Tipo:</strong> ${rec.tipo_recomendacion}</p>
+        <hr>
+        <h3>Evidencias</h3>
+        <ul id="rec-detalle-evidencia-list"><li>Cargando...</li></ul>
+    `;
+    footerEl.innerHTML = `<button id="btn-edit-rec-from-detail" class="btn-warning" data-rec-id="${recId}">Editar</button>`;
+    
+    modal.style.display = 'flex';
+
+    const evidenciaList = document.getElementById('rec-detalle-evidencia-list');
+    try {
+        const evidencias = await fetchAPI(`/api/evidencias?parent_type=recomendacion&parent_id=${recId}`);
+        if (evidencias.length > 0) {
+            evidenciaList.innerHTML = '';
+            evidencias.forEach(ev => {
+                const li = document.createElement('li');
+                li.innerHTML = `<a href="/uploads/${ev.url_almacenamiento}" target="_blank">${ev.nombre_archivo}</a>`;
+                evidenciaList.appendChild(li);
+            });
+        } else {
+            evidenciaList.innerHTML = '<li>No hay evidencias.</li>';
+        }
+    } catch (error) {
+        evidenciaList.innerHTML = '<li>Error al cargar evidencias.</li>';
+    }
+}
+
+function handleDetalleRecomendacionModalClick(event) {
+    if (event.target.id === 'btn-edit-rec-from-detail') {
+        const recId = event.target.dataset.recId;
+        document.getElementById('recomendacion-detalle-modal').style.display = 'none';
+        handleEditRecomendacion(recId);
+    }
+}
+
+async function handleEditRecomendacion(recId) {
+    const rec = currentRecomendacionData[recId];
+    if (!rec) return;
+
+    await handleNuevaRecomendacionClick({ informe: rec.id_informe ? rec : null });
+
+    const form = document.getElementById('recomendacion-form');
+    document.getElementById('recomendacion-modal-title').textContent = "Editar Recomendación";
+
+    form.querySelector('[name="id_recomendacion"]').value = rec.id_recomendacion;
+    form.querySelector('[name="descripcion"]').value = rec.descripcion;
+    form.querySelector('[name="area_responsable_atencion"]').value = rec.area_responsable_atencion;
+    
+    form.querySelector('[name="fecha_emision"]').value = new Date(rec.fecha_emision).toISOString().split('T')[0];
+
+    if (rec.fecha_compromiso) {
+        form.querySelector('[name="fecha_compromiso"]').value = new Date(rec.fecha_compromiso).toISOString().split('T')[0];
+    } else {
+        form.querySelector('[name="fecha_compromiso"]').value = '';
+    }
+
+    form.querySelector('[name="estatus"]').value = rec.estatus;
+    form.querySelector('[name="prioridad"]').value = rec.prioridad;
+    form.querySelector('[name="tipo_recomendacion"]').value = rec.tipo_recomendacion;
+    
+    if (!rec.id_informe) {
+        const respSelect = document.getElementById('rec-responsable-select');
+        const instSelect = document.getElementById('rec-institucion-select');
+        const orgSelect = document.getElementById('rec-organo-select');
+        
+        if (rec.id_responsable) {
+            respSelect.value = rec.id_responsable;
+            await poblarInstituciones(rec.id_responsable, 'rec-institucion-select', 'rec-organo-select');
+            instSelect.value = rec.id_institucion;
+            await poblarOrganosColegiados(rec.id_institucion, 'rec-organo-select');
+            orgSelect.value = rec.id_organo_colegiado;
+        }
+    }
+
+    formValidators[form.id].validate();
+}
+
+
+async function handleDeleteRecomendacion(recId) {
+    showConfirmModal(
+        'Confirmar Eliminación de Recomendación',
+        '¿Estás seguro de que deseas eliminar esta recomendación?',
+        async () => {
+            try {
+                await fetchAPI(`/api/recomendaciones/${recId}`, { method: 'DELETE' });
+                showNotification('Recomendación eliminada.');
+                if (currentView === 'informes') {
+                    cargarVistaDeDetalle(currentInformeId);
+                } else {
+                    cargarRecomendacionesIndependientes();
+                }
+            } catch (error) { 
+                console.error("Error al eliminar recomendación:", error); 
+                showNotification(`Error: ${error.message}`, 'error'); 
+            }
+        }
+    );
+}
+
+// =============================================================
+// MÓDULO PARA RECOMENDACIONES INDEPENDIENTES
+// =============================================================
+function initRecomendacionesModule() {
+    setupCascadingFilters({
+        baseName: 'filtro-rec',
+        year: true,
+        organoGeneralOption: "Todos",
+        callback: cargarRecomendacionesIndependientes
+    });
+
+    document.getElementById('btn-nueva-recomendacion-independiente')?.addEventListener('click', () => handleNuevaRecomendacionClick({}));
+    document.getElementById('recomendaciones-independientes-tbody')?.addEventListener('click', handleRecomendacionesTableClick);
+    
+    // Listeners para el modal
+    document.getElementById('rec-responsable-select')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'rec-institucion-select', 'rec-organo-select'));
+    document.getElementById('rec-institucion-select')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'rec-organo-select', null, true));
+}
+
+async function cargarRecomendacionesIndependientes() {
+    const año = document.getElementById('filtro-rec-año').value;
+    const dgId = document.getElementById('filtro-rec-dg').value;
+    const ramoId = document.getElementById('filtro-rec-ramo').value;
+    const responsableId = document.getElementById('filtro-rec-responsable').value;
+    const institucionId = document.getElementById('filtro-rec-institucion').value;
+    const organoId = document.getElementById('filtro-rec-organo').value;
+    const tbody = document.getElementById('recomendaciones-independientes-tbody');
+
+    currentView = 'recomendaciones';
+    tbody.innerHTML = `<tr><td colspan="11">Cargando...</td></tr>`;
+
+    const params = new URLSearchParams();
+    if (año) params.append('año', año);
+    if (dgId) params.append('id_dg', dgId);
+    if (ramoId) params.append('id_ramo', ramoId);
+    if (responsableId) params.append('responsable_id', responsableId);
+    if (institucionId) params.append('institucion_id', institucionId);
+    if (organoId && organoId !== '0') params.append('organo_id', organoId);
+
+    const queryString = params.toString();
+    const url = `/api/recomendaciones${queryString ? `?${queryString}` : ''}`;
+
+    try {
+        const recomendaciones = await fetchAPI(url);
+        renderRecomendaciones(recomendaciones, 'recomendaciones-independientes-tbody');
+    } catch (error) {
+        console.error("Error al cargar recomendaciones independientes:", error);
+        tbody.innerHTML = '<tr><td colspan="11">Error al cargar datos.</td></tr>';
+    }
+}
+
+// =============================================================
+// MÓDULO PARA DIRECTORIO
+// =============================================================
+let directorioData = {};
+
+function initDirectorioModule() {
+    setupCascadingFilters({
+        baseName: 'filtro-dir',
+        year: false,
+        organoGeneralOption: "General (Institución)",
+        callback: cargarContactos
+    });
+
+    document.getElementById('btn-nuevo-contacto')?.addEventListener('click', handleNuevoContactoClick);
+    document.getElementById('directorio-form')?.addEventListener('submit', handleDirectorioFormSubmit);
+    document.getElementById('directorio-tbody')?.addEventListener('click', handleDirectorioRowClick);
+
+    // Listeners para el modal
+    document.getElementById('dir-responsable-select')?.addEventListener('change', (e) => poblarInstituciones(e.target.value, 'dir-institucion-select', 'dir-organo-select'));
+    document.getElementById('dir-institucion-select')?.addEventListener('change', (e) => poblarOrganosColegiados(e.target.value, 'dir-organo-select', null, true));
+}
+
+async function cargarContactos() {
+    const institucionId = document.getElementById('filtro-dir-institucion').value;
+    const organoId = document.getElementById('filtro-dir-organo').value;
+    const tbody = document.getElementById('directorio-tbody');
+
+    if (!institucionId) {
+        tbody.innerHTML = '<tr><td colspan="6">Por favor, seleccione una institución para ver los contactos.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '<tr><td colspan="6">Cargando...</td></tr>';
+    try {
+        let url = `/api/directorio?institucion_id=${institucionId}`;
+        
+        if (organoId) {
+            url += `&organo_id=${organoId}`;
+        }
+        
+        const contactos = await fetchAPI(url);
+        renderContactos(contactos);
+    } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="6">Error al cargar los contactos.</td></tr>';
+        console.error("Error al cargar contactos:", error);
+    }
+}
+
+function renderContactos(contactos) {
+    const tbody = document.getElementById('directorio-tbody');
+    tbody.innerHTML = '';
+    directorioData = {};
+    if (contactos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6">No hay contactos para esta selección.</td></tr>';
+        return;
+    }
+    contactos.forEach(contacto => {
+        directorioData[contacto.id_contacto] = contacto;
+        const tr = document.createElement('tr');
+        tr.dataset.contactoId = contacto.id_contacto;
+        tr.innerHTML = `
+            <td>${contacto.nombre_contacto}</td>
+            <td>${contacto.telefono || 'N/A'}</td>
+            <td>${contacto.extension || 'N/A'}</td>
+            <td>${contacto.email || 'N/A'}</td>
+            <td>${contacto.movil || 'N/A'}</td>
+            <td class="actions-cell">
+                <button class="btn-icon btn-edit-contacto" title="Editar"><svg class="icon-edit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+                <button class="btn-icon btn-delete-contacto" title="Eliminar"><svg class="icon-delete" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function handleNuevoContactoClick() {
+    const form = document.getElementById('directorio-form');
+    form.reset();
+    document.getElementById('id_contacto_hidden').value = '';
+    document.getElementById('directorio-modal-title').textContent = 'Nuevo Contacto';
+    
+    document.getElementById('dir-creation-fields').classList.remove('hidden');
+    form.querySelectorAll('#dir-creation-fields select').forEach(sel => sel.required = true);
+    
+    await poblarSelectConAPI('/api/responsables', 'dir-responsable-select', 'id_responsable', 'nombre_responsable', 'Seleccione...');
+    document.getElementById('dir-institucion-select').innerHTML = '<option value="">Seleccione responsable...</option>';
+    document.getElementById('dir-institucion-select').disabled = true;
+    document.getElementById('dir-organo-select').innerHTML = '<option value="">Seleccione institución...</option>';
+    document.getElementById('dir-organo-select').disabled = true;
+
+    document.getElementById('directorio-modal').style.display = 'flex';
+    formValidators[form.id].validate();
+}
+
+async function handleDirectorioFormSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    const contactoId = formData.get('id_contacto');
+    const method = contactoId ? 'PUT' : 'POST';
+    const url = contactoId ? `/api/directorio/${contactoId}` : '/api/directorio';
+
+    if (contactoId) {
+        const contacto = directorioData[contactoId];
+        formData.append('id_institucion', contacto.id_institucion);
+        formData.append('id_organo_colegiado', contacto.id_organo_colegiado || '0');
+    }
+    
+    try {
+        await fetchAPI(url, { method, body: formData });
+        form.reset();
+        document.getElementById('directorio-modal').style.display = 'none';
+        showNotification('Contacto guardado exitosamente.');
+        cargarContactos();
+    } catch (error) {
+        showNotification(`Error: ${error.message}`, 'error');
+    }
+}
+
+function handleDirectorioRowClick(event) {
+    const target = event.target;
+    const button = event.target.closest('.btn-icon');
+    if (!button) return;
+
+    const contactoId = button.closest('tr')?.dataset.contactoId;
+    if (!contactoId) return;
+
+    if (button.classList.contains('btn-edit-contacto')) {
+        handleEditContacto(contactoId);
+    }
+    if (button.classList.contains('btn-delete-contacto')) {
+        handleDeleteContacto(contactoId);
+    }
+}
+
+function handleEditContacto(contactoId) {
+    const contacto = directorioData[contactoId];
+    if (!contacto) return;
+
+    const form = document.getElementById('directorio-form');
+    form.reset();
+    document.getElementById('id_contacto_hidden').value = contacto.id_contacto;
+    document.getElementById('directorio-modal-title').textContent = 'Editar Contacto';
+
+    document.getElementById('dir-creation-fields').classList.add('hidden');
+    form.querySelectorAll('#dir-creation-fields select').forEach(sel => sel.required = false);
+
+    form.querySelector('[name="nombre_contacto"]').value = contacto.nombre_contacto || '';
+    form.querySelector('[name="telefono"]').value = contacto.telefono || '';
+    form.querySelector('[name="extension"]').value = contacto.extension || '';
+    form.querySelector('[name="email"]').value = contacto.email || '';
+    form.querySelector('[name="movil"]').value = contacto.movil || '';
+    form.querySelector('[name="direccion"]').value = contacto.direccion || '';
+
+    document.getElementById('directorio-modal').style.display = 'flex';
+    formValidators[form.id].validate();
+}
+
+function handleDeleteContacto(contactoId) {
+    showConfirmModal('Confirmar Eliminación', '¿Está seguro de que desea eliminar este contacto?', async () => {
+        try {
+            await fetchAPI(`/api/directorio/${contactoId}`, { method: 'DELETE' });
+            showNotification('Contacto eliminado.');
+            cargarContactos();
+        } catch (error) {
+            showNotification(`Error: ${error.message}`, 'error');
+        }
+    });
+}
+
+// =============================================================
+// =================== MÓDULO PARA DASHBOARD =====================
+// =============================================================
+
+let recomendacionesChartInstance = null;
+let prioridadChartInstance = null;
+let tipoChartInstance = null;
+let sesionesTipoChartInstance = null;
+let informesTipoChartInstance = null;
+let recEmitidasChartInstance = null;
+let recAtendidasChartInstance = null;
+
+
+function initDashboardModule() {
+    // La carga inicial se hace al hacer clic en la pestaña de navegación
+}
+
+async function cargarDatosDashboard() {
+    const containers = {
+        vencidas: document.getElementById('dashboard-kpi-vencidas'),
+        antiguedad: document.getElementById('dashboard-kpi-antiguedad'),
+        sesiones: document.getElementById('dashboard-kpi-sesiones'),
+        topTbody: document.getElementById('dashboard-top-instituciones-tbody'),
+        totalInformes: document.getElementById('dashboard-kpi-total-informes'),
+        totalRecomendaciones: document.getElementById('dashboard-kpi-total-recomendaciones'),
+    };
+
+    Object.values(containers).forEach(container => {
+        if (container) {
+            if (container.tagName === 'TBODY') {
+                container.innerHTML = '<tr><td colspan="2">Cargando...</td></tr>';
+            } else {
+                container.innerHTML = '<p>Cargando...</p>';
+            }
+        }
+    });
+    
+    try {
+        const data = await fetchAPI('/api/dashboard/stats');
+        
+        if (containers.vencidas) containers.vencidas.innerHTML = `
+            <p>Recomendaciones Vencidas</p>
+            <p class="${data.vencidas_count > 0 ? 'kpi-alert' : 'kpi-number'}">${data.vencidas_count}</p>
+        `;
+        
+        if (containers.antiguedad) containers.antiguedad.innerHTML = `
+            <p>Antigüedad Promedio (Pendientes)</p>
+            <p class="kpi-number">${data.antiguedad_promedio}</p>
+            <p>días</p>
+        `;
+
+        if (containers.sesiones) containers.sesiones.innerHTML = `
+            <p><strong>${data.sesiones_stats.realizadas}</strong> de <strong>${data.sesiones_stats.total_programadas}</strong> realizadas</p>
+            <p class="kpi-number">${data.sesiones_stats.cumplimiento_pct}%</p>
+            <p>de Cumplimiento Anual</p>
+        `;
+
+        if (containers.totalInformes) containers.totalInformes.innerHTML = `
+             <p>Total General</p>
+             <p class="kpi-number">${data.total_informes}</p>
+        `;
+        
+        if (containers.totalRecomendaciones) {
+            const avanceGeneralPct = data.recomendaciones_totales.emitidas > 0
+                ? (data.recomendaciones_totales.atendidas / data.recomendaciones_totales.emitidas) * 100
+                : 0;
+            containers.totalRecomendaciones.innerHTML = `
+                <p><strong>${data.recomendaciones_totales.atendidas}</strong> de <strong>${data.recomendaciones_totales.emitidas}</strong></p>
+                <p class="kpi-number">${avanceGeneralPct.toFixed(1)}%</p>
+                <p>de Avance General</p>
+            `;
+        }
+        
+        if (containers.topTbody) {
+            containers.topTbody.innerHTML = '';
+            if (data.top_instituciones_pendientes.length > 0) {
+                data.top_instituciones_pendientes.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${item.siglas}</td><td>${item.pendientes_count}</td>`;
+                    containers.topTbody.appendChild(tr);
+                });
+            } else {
+                containers.topTbody.innerHTML = '<tr><td colspan="2">No hay pendientes.</td></tr>';
+            }
+        }
+
+        // --- Renderizar Gráficos ---
+        renderRecomendacionesChart(data.recomendaciones_stats);
+        renderPrioridadChart(data.prioridad_stats);
+        renderTipoChart(data.tipo_stats, 'tipo-chart', 'Análisis por Tipo de Recomendación');
+        renderSesionesTipoChart(data.sesiones_por_tipo);
+        renderTipoChart(data.informes_por_tipo, 'informes-tipo-chart', 'Informes por Tipo', 'tipo_informe');
+        renderTipoChart(data.rec_emitidas_por_tipo_informe, 'rec-emitidas-tipo-informe-chart', 'Recomendaciones Emitidas por Tipo de Informe', 'tipo_informe');
+        renderTipoChart(data.rec_atendidas_por_tipo_informe, 'rec-atendidas-tipo-informe-chart', 'Recomendaciones Atendidas por Tipo de Informe', 'tipo_informe');
+
+
+    } catch (error) {
+        console.error("Error al cargar datos del dashboard:", error);
+        showNotification('No se pudieron cargar los datos del dashboard.', 'error');
+        Object.values(containers).forEach(c => { 
+            if(c) { 
+                if (c.tagName === 'TBODY') {
+                    c.innerHTML = '<tr><td colspan="2" style="color:red;">Error</td></tr>';
+                } else {
+                    c.innerHTML = '<p style="color:red;">Error</p>'; 
+                }
+            }
+        });
+    }
+}
+
+function renderRecomendacionesChart(stats) {
+    const ctx = document.getElementById('recomendaciones-chart')?.getContext('2d');
+    if (!ctx) return;
+
+    if (recomendacionesChartInstance) {
+        recomendacionesChartInstance.destroy();
+    }
+
+    const labels = stats.map(item => item.estatus);
+    const data = stats.map(item => item.count);
+    const colorMap = {
+        'Completada': '#1e5b4f', 'Cerrada': '#1e5b4f', 'Pendiente': '#9b2247',
+        'En Proceso': '#a57f2c', 'Cancelada': '#6c757d'
+    };
+
+    recomendacionesChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Recomendaciones', data: data,
+                backgroundColor: labels.map(label => colorMap[label] || '#333333'),
+                borderColor: '#fff', borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Distribución de Recomendaciones por Estatus' } }
+        }
+    });
+}
+
+function renderPrioridadChart(stats) {
+    const ctx = document.getElementById('prioridad-chart')?.getContext('2d');
+    if (!ctx) return;
+
+    if (prioridadChartInstance) {
+        prioridadChartInstance.destroy();
+    }
+
+    const prioridadOrden = ['Alta', 'Media', 'Baja'];
+    const dataMap = new Map(stats.map(item => [item.prioridad, item.count]));
+    const labels = prioridadOrden;
+    const data = prioridadOrden.map(p => dataMap.get(p) || 0);
+
+    prioridadChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Nº de Pendientes', data: data,
+                backgroundColor: ['rgba(220, 53, 69, 0.7)','rgba(255, 193, 7, 0.7)','rgba(25, 135, 84, 0.7)'],
+                borderColor: ['rgb(220, 53, 69)','rgb(255, 193, 7)','rgb(25, 135, 84)'],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, title: { display: true, text: 'Recomendaciones Pendientes por Prioridad' } },
+            scales: { x: { beginAtZero: true } }
+        }
+    });
+}
+
+function renderTipoChart(stats, canvasId, titleText, labelField = 'tipo_recomendacion') {
+    const ctx = document.getElementById(canvasId)?.getContext('2d');
+    if (!ctx) {
+        if(canvasId !== 'tipo-chart') { 
+            console.warn(`Canvas con ID '${canvasId}' no encontrado.`);
+        }
+        return;
+    }
+
+    let chartInstance;
+    if (canvasId === 'tipo-chart') chartInstance = tipoChartInstance;
+    if (canvasId === 'informes-tipo-chart') chartInstance = informesTipoChartInstance;
+    if (canvasId === 'rec-emitidas-tipo-informe-chart') chartInstance = recEmitidasChartInstance;
+    if (canvasId === 'rec-atendidas-tipo-informe-chart') chartInstance = recAtendidasChartInstance;
+    
+    if (chartInstance) {
+        chartInstance.destroy();
+    }
+
+    const labels = stats.map(item => item[labelField]);
+    const data = stats.map(item => item.count);
+
+    chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Total', data: data,
+                backgroundColor: ['rgba(155, 34, 71, 0.7)','rgba(30, 91, 79, 0.7)','rgba(165, 127, 44, 0.7)'],
+                borderColor: ['rgb(155, 34, 71)','rgb(30, 91, 79)','rgb(165, 127, 44)'],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, title: { display: true, text: titleText } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+
+    if (canvasId === 'tipo-chart') tipoChartInstance = chartInstance;
+    if (canvasId === 'informes-tipo-chart') informesTipoChartInstance = chartInstance;
+    if (canvasId === 'rec-emitidas-tipo-informe-chart') recEmitidasChartInstance = chartInstance;
+    if (canvasId === 'rec-atendidas-tipo-informe-chart') recAtendidasChartInstance = chartInstance;
+}
+
+function renderSesionesTipoChart(stats) {
+    const ctx = document.getElementById('sesiones-tipo-chart')?.getContext('2d');
+    if (!ctx) return;
+    
+    if (sesionesTipoChartInstance) {
+        sesionesTipoChartInstance.destroy();
+    }
+
+    const labels = stats.map(item => item.tipo_sesion);
+    const data = stats.map(item => item.count);
+
+    sesionesTipoChartInstance = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Sesiones', data: data,
+                backgroundColor: ['rgba(30, 91, 79, 0.7)','rgba(165, 127, 44, 0.7)'],
+                borderColor: ['#FFFFFF'], borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Sesiones por Tipo del Año Actual' } }
+        }
+    });
+}
+
+
+// =============================================================
+// =================== MÓDULO DE REPORTERÍA ====================
+// =============================================================
+let reporteActualData = [];
+
+function initReporteriaModule() {
+    const reportTypeSelect = document.getElementById('report-type-select');
+    const generateBtn = document.getElementById('generate-report-btn');
+    const exportBtn = document.getElementById('export-excel-btn');
+    
+    if (!reportTypeSelect) return;
+
+    poblarSelectConOpciones('report-rec-estatus', ['Pendiente', 'En Proceso', 'Completada', 'Cerrada', 'Cancelada'], 'Todos');
+    poblarSelectConOpciones('report-rec-prioridad', ['Alta', 'Media', 'Baja'], 'Todas');
+    poblarSelectConOpciones('report-rec-tipo', ['Correctiva', 'Preventiva', 'De Mejora Continua'], 'Todos');
+    poblarSelectConAPI('/api/responsables', 'report-rec-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    poblarSelectConAPI('/api/instituciones', 'report-rec-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
+    poblarSelectConAPI('/api/organos-colegiados', 'report-rec-organo', 'id_organo_colegiado', 'nombre_organo', 'Todos', true);
+
+    const añoSelectSes = document.getElementById('report-ses-año');
+    añoSelectSes.innerHTML = '<option value="">Todos</option>';
+    for (let i = 2030; i >= 2024; i--) { añoSelectSes.add(new Option(i, i)); }
+    poblarSelectConOpciones('report-ses-tipo', ['Ordinaria', 'Extraordinaria'], 'Todos');
+    poblarSelectConOpciones('report-ses-estatus', ['Programada', 'Realizada'], 'Todos');
+    poblarSelectConAPI('/api/responsables', 'report-ses-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    poblarSelectConAPI('/api/instituciones', 'report-ses-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
+    poblarSelectConAPI('/api/organos-colegiados', 'report-ses-organo', 'id_organo_colegiado', 'nombre_organo', 'Todos', true);
+
+    const añoSelectInf = document.getElementById('report-inf-periodo');
+    añoSelectInf.innerHTML = '<option value="">Todos</option>';
+    for (let i = 2030; i >= 2024; i--) { añoSelectInf.add(new Option(i, i)); }
+    poblarSelectConOpciones('report-inf-tipo', ['Informe de Autoevaluación', 'Informe de Estados Financieros', 'RAAD'], 'Todos');
+    poblarSelectConAPI('/api/responsables', 'report-inf-responsable', 'id_responsable', 'nombre_responsable', 'Todos');
+    poblarSelectConAPI('/api/instituciones', 'report-inf-institucion', 'id_institucion', 'nombre_institucion', 'Todos');
+    poblarSelectConAPI('/api/organos-colegiados', 'report-inf-organo', 'id_organo_colegiado', 'nombre_organo', 'Todos', true);
+
+    reportTypeSelect.addEventListener('change', () => {
+        const selectedType = reportTypeSelect.value;
+        document.querySelectorAll('.report-filters').forEach(panel => panel.classList.add('hidden'));
+
+        if (selectedType === 'recomendaciones') {
+            document.getElementById('filters-recomendaciones').classList.remove('hidden');
+        } else if (selectedType === 'sesiones') {
+            document.getElementById('filters-sesiones').classList.remove('hidden');
+        } else if (selectedType === 'informes') {
+            document.getElementById('filters-informes').classList.remove('hidden');
+        }
+        
+        generateBtn.disabled = !selectedType;
+        exportBtn.disabled = true;
+        document.getElementById('report-preview-area').innerHTML = '<p>Aún no se ha generado ningún reporte.</p>';
+    });
+
+    generateBtn.addEventListener('click', () => {
+        const selectedType = document.getElementById('report-type-select').value;
+        if (selectedType === 'recomendaciones') {
+            generarReporteRecomendaciones();
+        } else if (selectedType === 'sesiones') {
+            generarReporteSesiones();
+        } else if (selectedType === 'informes') {
+            generarReporteInformes();
+        }
+    });
+
+    exportBtn.addEventListener('click', exportarReporteExcel);
+}
+
+function recogerFiltrosRecomendaciones() {
+    const filters = {};
+    const responsable = document.getElementById('report-rec-responsable').value;
+    const institucion = document.getElementById('report-rec-institucion').value;
+    const organo = document.getElementById('report-rec-organo').value;
+    const fechaDesde = document.getElementById('report-rec-date-from').value;
+    const fechaHasta = document.getElementById('report-rec-date-to').value;
+    const estatus = document.getElementById('report-rec-estatus').value;
+    const prioridad = document.getElementById('report-rec-prioridad').value;
+    const tipo = document.getElementById('report-rec-tipo').value;
+    const vencidas = document.getElementById('report-rec-vencidas').checked;
+
+    if (responsable) filters.responsable_id = parseInt(responsable);
+    if (institucion) filters.institucion_id = parseInt(institucion);
+    if (organo) filters.organo_id = parseInt(organo);
+    if (fechaDesde) filters.date_from = fechaDesde;
+    if (fechaHasta) filters.date_to = fechaHasta;
+    
+    if (estatus) filters.estatus = [estatus];
+    if (prioridad) filters.prioridad = [prioridad];
+    if (tipo) filters.tipo = [tipo];
+
+    if (vencidas) filters.vencidas_only = true;
+
+    return filters;
+}
+
+async function generarReporteRecomendaciones() {
+    const previewArea = document.getElementById('report-preview-area');
+    const exportBtn = document.getElementById('export-excel-btn');
+    previewArea.innerHTML = '<p>Generando reporte, por favor espere...</p>';
+    exportBtn.disabled = true;
+    reporteActualData = [];
+
+    const filters = recogerFiltrosRecomendaciones();
+
+    try {
+        const data = await fetchAPI('/api/reportes/recomendaciones', {
+            method: 'POST',
+            body: filters
+        });
+        
+        reporteActualData = data;
+        const headerMap = {
+            'id_recomendacion': 'ID', 'institucion': 'Institución', 'nombre_organo': 'Órgano Colegiado',
+            'descripcion': 'Descripción', 'area_responsable_atencion': 'Área Responsable',
+            'fecha_emision': 'Fecha Emisión', 'fecha_compromiso': 'Fecha Compromiso',
+            'estatus': 'Estatus', 'prioridad': 'Prioridad', 'tipo_recomendacion': 'Tipo'
+        };
+        renderTablaReporte(data, headerMap);
+        exportBtn.disabled = data.length === 0;
+
+    } catch (error) {
+        console.error("Error al generar el reporte:", error);
+        previewArea.innerHTML = `<p style="color: red;">Error al generar el reporte: ${error.message}</p>`;
+        showNotification('Error al generar el reporte.', 'error');
+    }
+}
+
+function recogerFiltrosSesiones() {
+    const filters = {};
+    const fechaDesde = document.getElementById('report-ses-date-from').value;
+    const fechaHasta = document.getElementById('report-ses-date-to').value;
+    const año = document.getElementById('report-ses-año').value;
+    const responsable = document.getElementById('report-ses-responsable').value;
+    const institucion = document.getElementById('report-ses-institucion').value;
+    const organo = document.getElementById('report-ses-organo').value;
+    const tipo = document.getElementById('report-ses-tipo').value;
+    const estatus = document.getElementById('report-ses-estatus').value;
+
+    if (fechaDesde) filters.date_from = fechaDesde;
+    if (fechaHasta) filters.date_to = fechaHasta;
+    if (año) filters.año = parseInt(año);
+    if (responsable) filters.responsable_id = parseInt(responsable);
+    if (institucion) filters.institucion_id = parseInt(institucion);
+    if (organo) filters.organo_id = parseInt(organo);
+    if (tipo) filters.tipo_sesion = tipo;
+    if (estatus) filters.estatus = estatus;
+
+    return filters;
+}
+
+async function generarReporteSesiones() {
+    const previewArea = document.getElementById('report-preview-area');
+    const exportBtn = document.getElementById('export-excel-btn');
+    previewArea.innerHTML = '<p>Generando reporte de sesiones, por favor espere...</p>';
+    exportBtn.disabled = true;
+    reporteActualData = [];
+
+    const filters = recogerFiltrosSesiones();
+
+    try {
+        const data = await fetchAPI('/api/reportes/sesiones', {
+            method: 'POST',
+            body: filters
+        });
+        
+        reporteActualData = data;
+        
+        const headerMap = {
+            'año': 'Año', 'responsable': 'Responsable', 'institucion': 'Institución',
+            'organo_colegiado': 'Órgano Colegiado', 'tipo_sesion': 'Tipo de Sesión',
+            'numero_ordinal': 'Nº Sesión', 'estatus': 'Estatus', 'oficio': 'Nº de Oficio',
+            'fecha_real': 'Fecha Realizada'
+        };
+        
+        renderTablaReporte(data, headerMap);
+        exportBtn.disabled = data.length === 0;
+
+    } catch (error) {
+        console.error("Error al generar el reporte de sesiones:", error);
+        previewArea.innerHTML = `<p style="color: red;">Error al generar el reporte: ${error.message}</p>`;
+        showNotification('Error al generar el reporte de sesiones.', 'error');
+    }
+}
+
+function recogerFiltrosInformes() {
+    const filters = {};
+    const periodo = document.getElementById('report-inf-periodo').value;
+    const responsable = document.getElementById('report-inf-responsable').value;
+    const institucion = document.getElementById('report-inf-institucion').value;
+    const organo = document.getElementById('report-inf-organo').value;
+    const tipo = document.getElementById('report-inf-tipo').value;
+
+    if (periodo) filters.periodo = periodo;
+    if (responsable) filters.responsable_id = parseInt(responsable);
+    if (institucion) filters.institucion_id = parseInt(institucion);
+    if (organo) filters.organo_id = parseInt(organo);
+    if (tipo) filters.tipo_informe = tipo;
+
+    return filters;
+}
+
+async function generarReporteInformes() {
+    const previewArea = document.getElementById('report-preview-area');
+    const exportBtn = document.getElementById('export-excel-btn');
+    previewArea.innerHTML = '<p>Generando reporte de informes, por favor espere...</p>';
+    exportBtn.disabled = true;
+    reporteActualData = [];
+
+    const filters = recogerFiltrosInformes();
+
+    try {
+        const data = await fetchAPI('/api/reportes/informes', {
+            method: 'POST',
+            body: filters
+        });
+        
+        reporteActualData = data;
+        
+        const headerMap = {
+            'id_informe': 'ID', 'nombre_responsable': 'Responsable', 'institucion': 'Institución',
+            'nombre_organo': 'Órgano Colegiado', 'tipo_informe': 'Tipo de Informe', 'periodo': 'Periodo',
+            'fecha_informe': 'Fecha de Informe', 'descripcion': 'Descripción',
+            'recomendaciones_emitidas': 'Rec. Emitidas', 'recomendaciones_atendidas': 'Rec. Atendidas'
+        };
+        
+        renderTablaReporte(data, headerMap);
+        exportBtn.disabled = data.length === 0;
+
+    } catch (error) {
+        console.error("Error al generar el reporte de informes:", error);
+        previewArea.innerHTML = `<p style="color: red;">Error al generar el reporte: ${error.message}</p>`;
+        showNotification('Error al generar el reporte de informes.', 'error');
+    }
+}
+
+function renderTablaReporte(data, headerMap) {
+    const previewArea = document.getElementById('report-preview-area');
+    if (!data || data.length === 0) {
+        previewArea.innerHTML = '<p>No se encontraron resultados con los filtros aplicados.</p>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.id = 'report-table';
+    const thead = document.createElement('thead');
+    const tbody = document.createElement('tbody');
+    
+    const headers = Object.keys(data[0]);
+    const headerRow = document.createElement('tr');
+    
+    headers.forEach(header => {
+        const th = document.createElement('th');
+        th.textContent = headerMap[header] || header;
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+
+    data.forEach(rowData => {
+        const tr = document.createElement('tr');
+        headers.forEach(header => {
+            const td = document.createElement('td');
+            let cellData = rowData[header];
+            if ((header.startsWith('fecha_') || header === 'fecha_real') && cellData) {
+                cellData = new Date(cellData).toLocaleDateString('es-MX', { timeZone: 'UTC' });
+            }
+            td.textContent = cellData === null ? 'N/A' : cellData;
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    previewArea.innerHTML = '';
+    previewArea.appendChild(table);
+}
+
+function exportarReporteExcel() {
+    if (reporteActualData.length === 0) {
+        showNotification("No hay datos para exportar.", "error");
+        return;
+    }
+
+    const selectedType = document.getElementById('report-type-select').value;
+    let fileName = "Reporte_COCODI.xlsx";
+    let sheetName = "Reporte";
+
+    if (selectedType === 'recomendaciones') {
+        fileName = "Reporte_Recomendaciones_COCODI.xlsx";
+        sheetName = "Recomendaciones";
+    } else if (selectedType === 'sesiones') {
+        fileName = "Reporte_Sesiones_COCODI.xlsx";
+        sheetName = "Sesiones";
+    } else if (selectedType === 'informes') {
+        fileName = "Reporte_Informes_COCODI.xlsx";
+        sheetName = "Informes";
+    }
+    
+    const dataParaExportar = reporteActualData.map(row => {
+        const newRow = {...row};
+        for (const key in newRow) {
+            if ((key.startsWith('fecha_') || key === 'fecha_real') && newRow[key]) {
+                const date = new Date(newRow[key]);
+                newRow[key] = `${date.getUTCDate()}/${date.getUTCMonth() + 1}/${date.getUTCFullYear()}`;
+            }
+        }
+        return newRow;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataParaExportar);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+    XLSX.writeFile(workbook, fileName);
+    showNotification("Exportación a Excel iniciada.");
+}
+
+
+// =============================================================
+// ================= MÓDULO DE CARGA MASIVA ====================
+// =============================================================
+
+function initCargaMasivaModule() {
+    const form = document.getElementById('bulk-upload-form');
+    const fileInput = document.getElementById('bulk-upload-file-input');
+    const submitBtn = document.getElementById('bulk-upload-submit-btn');
+    const resultArea = document.getElementById('bulk-upload-result-area');
+    const statusDiv = document.getElementById('bulk-upload-status');
+
+    if (!form) return;
+
+    // Habilitar el botón solo si hay un archivo seleccionado
+    fileInput.addEventListener('change', () => {
+        submitBtn.disabled = !fileInput.files || fileInput.files.length === 0;
+    });
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (!fileInput.files || fileInput.files.length === 0) {
+            showNotification('Por favor, seleccione un archivo.', 'error');
+            return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Procesando...';
+        resultArea.classList.remove('hidden');
+        statusDiv.innerHTML = `<p>Enviando y procesando el archivo. Esto puede tardar unos momentos...</p>`;
+        resultArea.style.backgroundColor = '#f8f9fa'; // Estilo neutral
+
+        const formData = new FormData(form);
+
+        try {
+            const response = await fetchAPI('/api/bulk-upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            statusDiv.innerHTML = `<p style="color: var(--color-gob-verde); font-weight: bold;">${response.message}</p>`;
+            resultArea.style.backgroundColor = '#d4edda'; // Color de éxito
+            showNotification('Carga masiva completada con éxito.', 'success');
+            form.reset();
+
+        } catch (error) {
+            statusDiv.innerHTML = `<p style="color: var(--color-danger); font-weight: bold;">Fallo en la carga:</p><p>${error.message}</p>`;
+            resultArea.style.backgroundColor = '#f8d7da'; // Color de error
+            showNotification('La carga masiva falló. Revise los detalles.', 'error');
+        
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Procesar y Cargar Archivo';
+            fileInput.value = ''; 
+        }
+    });
+}

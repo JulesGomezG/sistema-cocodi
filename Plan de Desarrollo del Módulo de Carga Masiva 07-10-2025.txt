@@ -1,0 +1,61 @@
+Plan de Desarrollo del Módulo de Carga Masiva
+1. Backend: Crear el Endpoint en Flask
+Crearemos una única ruta en nuestra API, por ejemplo /api/upload, que aceptará archivos. Esta ruta será la encargada de recibir el archivo, identificar si es de "Sesiones" o de "Informes" y delegar el procesamiento a una función específica.
+
+Puntos Clave:
+
+Recepción del Archivo: Usaremos request.files en Flask para obtener el archivo cargado.
+
+Parámetro de Tipo: El frontend enviará un parámetro adicional (type='sesiones' o type='informes') para que el backend sepa qué lógica aplicar.
+
+Respuesta JSON: La API devolverá un mensaje claro de éxito o, en caso de error, un detalle del problema (ej. "Error en la fila 15: La institución 'INSTITUCION_X' no se encontró en el mapeo.").
+
+Atomicidad: El proceso de inserción en la base de datos debe ser una transacción. Si una sola fila del archivo falla la validación, se debe deshacer (rollback) toda la operación para no dejar datos cargados a medias.
+
+2. Lógica de Procesamiento: Implementación en Python
+Usaremos la librería Pandas para leer y manipular los datos del archivo (probablemente un CSV o Excel). Esto simplificará enormemente las reglas de limpieza y mapeo.
+
+Función process_sesiones(dataframe):
+
+Aplicará las reglas de limpieza (eliminar fila #297 y #27).
+
+Cargará mapeo_final.json.
+
+Iterará sobre cada fila para:
+
+Traducir INSTITUCIÓN y TIPO DE ÓRGANO usando el JSON.
+
+Normalizar ORDINARIA/EXTRAORDINARIA.
+
+Formatear la fecha.
+
+Validar contra la tabla institucion_organos.
+
+Preparar la sentencia INSERT.
+
+Función process_informes(dataframe):
+
+Cargará mapeo_final.json.
+
+Iterará sobre cada fila para:
+
+Aplicar el parsing a la columna RECOMENDACIÓN_A: para extraer tipo de informe y año.
+
+Aplicar la regla de inferencia para determinar el id_tipo_organo.
+
+Traducir INSTITUCIÓN usando el JSON.
+
+Validar el par (id_institucion, id_tipo_organo_inferido) contra institucion_organos.
+
+Preparar la sentencia INSERT.
+
+3. Frontend: Interfaz Sencilla en HTML y JavaScript
+Crearemos un formulario simple que permita al usuario:
+
+Seleccionar el archivo de su computadora (<input type="file">).
+
+Especificar qué tipo de archivo está subiendo (Sesiones o Informes) mediante botones de radio.
+
+Un botón de "Cargar" que activará una función de JavaScript.
+
+El JavaScript usará la API fetch para enviar el archivo y el tipo de carga al endpoint /api/upload y mostrará al usuario la respuesta del servidor.

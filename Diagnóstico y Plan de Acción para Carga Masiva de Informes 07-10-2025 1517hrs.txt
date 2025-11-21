@@ -1,0 +1,43 @@
+Diagnóstico y Plan de Acción para Carga Masiva de Informes
+Fecha de Análisis: 7 de Octubre de 2025
+Fuente de Datos: Archivo histórico de Informes (Texto Plano)
+Base de Datos de Destino: init_final_v22.sql
+
+Veredicto Ejecutivo
+Los datos de informes son consistentes y están bien estructurados. Sin embargo, presentan un desafío de integridad referencial crítico: la ausencia de la columna id_tipo_organo. Para resolver esto, es necesario aplicar una regla de negocio para inferir el órgano emisor basándose en el tipo de informe. Una vez implementada esta lógica, la carga masiva es completamente viable.
+
+Hallazgos Detallados
+1. Integridad Referencial: El id_tipo_organo Faltante (Problema Crítico)
+El problema principal es que el archivo de origen no indica si un informe fue generado por el COCODI o por el Órgano de Gobierno. Este dato es obligatorio en la tabla informes para mantener la integridad con la tabla institucion_organos.
+
+Plan de Acción: Implementar una Regla de Negocio de Inferencia
+
+Basándonos en la Ley Federal de las Entidades Paraestatales, el Acuerdo de Control Interno y las reglas de negocio que ya validamos, podemos establecer la siguiente lógica para el script de carga:
+
+REGLA 1: Si el tipo de informe es RAAD (Reporte Anual del Análisis del Desempeño), se infiere que el órgano emisor es el COCODI (id_tipo_organo = 1).
+
+Justificación: El RAAD es el producto principal del Sistema de Control Interno (SCI), supervisado por el COCODI.
+
+REGLA 2: Si el tipo de informe es Informe de Autoevaluación o Informe de Estados Financieros, se infiere que el órgano emisor es el Órgano de Gobierno (id_tipo_organo = 2).
+
+Justificación: Estos informes se relacionan con el desempeño estratégico y financiero de la entidad, que es responsabilidad del Órgano de Gobierno (Junta, Consejo, etc.), como lo estipula la ley.
+
+Esta lógica es robusta, se alinea con el marco legal y resuelve el 100% de los casos en los datos proporcionados. El script de carga masiva debe implementar esta regla.
+
+2. Mapeo y Parsing de Datos (Problema Menor)
+Los datos requieren un procesamiento similar al de las sesiones.
+
+Parsing de la Columna RECOMENDACIÓN_A:: El script debe ser capaz de analizar cadenas como "Informe de Autoevaluación 2024" o "RAAD" para extraer dos datos:
+
+Tipo de Informe: Informe de Autoevaluación o RAAD.
+
+Periodo Reportado: 2024. (Para RAAD, aunque no lo especifica, se asume que el periodo es el año de la fecha del informe).
+
+Mapeo de Nombres de Instituciones: Se debe seguir utilizando el archivo mapeo_final.json para traducir nombres como FONATUR_CONSTRUCTORA a su nombre oficial y así obtener su id_institucion.
+
+Plan de Acción: La lógica de parsing y mapeo debe ser incorporada en el script de carga. El mapeo_final.json que ya tenemos es suficiente y no requiere modificaciones.
+
+3. Limpieza de Datos (Problema Menor)
+Los datos de informes están notablemente limpios. No se detectaron duplicados evidentes ni filas inválidas como en el caso de las sesiones.
+
+Plan de Acción: El script de carga debe incluir las conversiones de formato estándar (ej. fechas de dd/mm/yyyy a YYYY-MM-DD), pero no se requiere una lógica de limpieza de datos anómalos para esta tanda.
