@@ -397,7 +397,7 @@ def process_informes_file(cur, file, mapeo_datos):
             informe_id, id_institucion, id_tipo_organo,
             descripcion, area_responsable_atencion, estatus,
             usuario_creacion
-        ) VALUES (%s, %s, %s, %s, %s, %s, 'carga_masiva');
+        ) VALUES (%s, %s, %s, %s, %s, %s, 'carga_masiva', %s);
     """
 
     registros_procesados = 0
@@ -475,13 +475,15 @@ def process_informes_file(cur, file, mapeo_datos):
             for _ in range(atendidas):
                 cur.execute(sql_insert_rec, (
                     new_informe_id, id_institucion, id_tipo_organo,
-                    REC_PLACEHOLDER_DESC, REC_PLACEHOLDER_AREA, 'Atendida'
+                    REC_PLACEHOLDER_DESC, REC_PLACEHOLDER_AREA, 'Atendida',
+                    fecha_informe
                 ))
             
             for _ in range(pendientes):
                 cur.execute(sql_insert_rec, (
                     new_informe_id, id_institucion, id_tipo_organo,
-                    REC_PLACEHOLDER_DESC, REC_PLACEHOLDER_AREA, 'Pendiente'
+                    REC_PLACEHOLDER_DESC, REC_PLACEHOLDER_AREA, 'Pendiente',
+                    fecha_informe
                 ))
 
             registros_procesados += 1

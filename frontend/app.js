@@ -2133,7 +2133,7 @@ function initRecomendacionesModule() {
 	
 	// Poblamos el nuevo select de Estatus
     poblarSelectConOpciones('filtro-rec-estatus', 
-        ['Pendiente', 'En Proceso', 'Completada', 'Cerrada', 'Cancelada'], 
+        ['Pendiente', 'En Proceso', 'Atendida', 'Cerrada', 'Cancelada'], 
         'Todos los Estatus'
     );
     // Nos aseguramos de que el callback de carga se ejecute también cuando este filtro cambie
