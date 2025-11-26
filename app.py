@@ -10,6 +10,7 @@ import pandas as pd
 import json
 import re
 import math
+import socket
 from datetime import date
 from functools import wraps # <--- NECESARIO PARA LOS DECORADORES
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -3111,5 +3112,38 @@ def manejar_detalle_contacto(id_contacto):
 # =============================================================
 # EJECUCIÓN DE LA APLICACIÓN
 # =============================================================
+#if __name__ == '__main__':
+#    app.run(host='0.0.0.0', port=5001, debug=True)
+
+
+# =============================================================
+# UTILIDAD DE RED LOCAL (LAN)
+# =============================================================
+def obtener_datos_red():
+    hostname = socket.gethostname()
+    local_ip = "127.0.0.1"
+    try:
+        # Conectar a un DNS público para determinar la interfaz de salida real
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+    return hostname, local_ip
+
+# =============================================================
+# EJECUCIÓN DE LA APLICACIÓN
+# =============================================================
 if __name__ == '__main__':
+    host_name, host_ip = obtener_datos_red()
+    
+    print("\n" + "="*60)
+    print(f" 🚀 SISTEMA COCODI (PROD) - LISTO PARA LA RED")
+    print("="*60)
+    print(f" ► Acceso Local:      http://localhost:5001")
+    print(f" ► Acceso LAN (IP):   http://{host_ip}:5001")
+    print(f" ► Acceso LAN (Host): http://{host_name}:5001  <-- (Recomendado)")
+    print("="*60 + "\n")
+    
     app.run(host='0.0.0.0', port=5001, debug=True)

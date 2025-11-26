@@ -5,16 +5,18 @@ services:
     image: postgres:15-alpine
     container_name: cocodi_db
     environment:
-        - POSTGRES_USER=cocodi_user
-        - POSTGRES_PASSWORD=new_password_2025
-        - POSTGRES_DB=cocodi_db
+      # Inyectamos las variables del .env
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Volumen NUEVO para Producción (aislado de dev)
+      - cocodi_prod_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cocodi_user -d cocodi_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,16 +26,15 @@ services:
     build: .
     ports:
       - "5001:5001"
-    # --- CORRECCIÓN CRÍTICA ---
-    # Eliminamos la línea '- .:/app'. Ya no intentaremos sincronizar en vivo.
-    # Confiaremos en los archivos copiados por el Dockerfile durante el 'build'.
     volumes:
       - ./uploads:/app/uploads
     environment:
-      - DATABASE_URL=postgresql://cocodi_user:new_password_2025@db:5432/cocodi_db
+      - DATABASE_URL=${DATABASE_URL}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
-  postgres_data:
+  # Declaramos el nuevo volumen persistente
+  cocodi_prod_data:
