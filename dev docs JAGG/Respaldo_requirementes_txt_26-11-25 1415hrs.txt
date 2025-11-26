@@ -1,0 +1,16 @@
+
+
+
+RESPALDO requirementes.txt
+después de Toles/Usuarios y antes de despliegue nueva infraestructura con IP dinámica en PROD.
+26-11-2025 14:15
+
+
+
+# requirements.txt
+Flask
+psycopg2-binary
+Flask-Cors
+pandas
+openpyxl
+gunicorn

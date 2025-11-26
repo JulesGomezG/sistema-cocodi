@@ -1,3 +1,12 @@
+
+
+
+RESPALDO init.sql
+después de Toles/Usuarios y antes de despliegue nueva infraestructura con IP dinámica en PROD.
+26-11-2025 14:15
+
+
+
 -- =================================================================
 -- Script de Inicialización COCODI - Base SSOT (Fase 2)
 -- Propósito: Crea la ESTRUCTURA SSOT lista para la carga histórica.

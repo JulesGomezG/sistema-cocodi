@@ -1,0 +1,15 @@
+
+
+
+Variable	Valor de Producción (Ejemplo)	Propósito
+POSTGRES_PASSWORD	suCOCODIPostgres2025	Contraseña del superusuario de la nueva DB.
+DATABASE_URL	postgresql://postgres:MiContrasenaPostgres2025!@db:5432/cocodi	Cadena de conexión para la aplicación Flask.
+FLASK_SECRET_KEY	947d1f5e8f3a2b4c6e9a8d7c6b5a4e3d2c1b0a9f8e7d6c5b4a39281706f5e4d3	Clave criptográfica para proteger las sesiones de usuario en Flask.
+
+
+Password Seguro
+admin@cocodi.gob.mx
+cocodiprod2025
+
+HASH
+scrypt:32768:8:1$iJwd5SeisXMon34kOqu9$c9c880b66256f20cc4afcc15bb7fe76788ddea7bb734f8a269f51050406b9a1685a82afbdb51d469d1e5aee9f2b3d98c584fa0d4f7f0b66dcf1f6d03197ec9a61a
